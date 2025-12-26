@@ -3,6 +3,8 @@ import { Order, OrderItem, OrderStatus, OrderItemStatus } from '@/types';
 import { ordersApi, getApiError } from '@/lib/api';
 import type { Order as ApiOrder, OrderItem as ApiOrderItem } from '@/lib/api/ordersApi';
 import { useAuthStore } from './authStore';
+import { useSettingsStore } from './settingsStore';
+import { subscribeToOrders } from '@/lib/socket';
 
 interface OrderStore {
   orders: Order[];
@@ -395,10 +397,60 @@ export const useOrderStore = create<OrderStore>((set, get) => ({
 
   calculateOrderTotals: (items) => {
     const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
-    // Tax calculation should ideally come from backend or tax settings
-    // For now, using a simple calculation
-    const tax = subtotal * 0.08; // 8% default tax
+    
+    // Get active taxes from settings store
+    const { taxes } = useSettingsStore.getState();
+    const activeTaxes = taxes.filter(tax => tax.enabled);
+    
+    // Calculate tax amount based on active taxes
+    let tax = 0;
+    if (activeTaxes.length > 0) {
+      for (const taxConfig of activeTaxes) {
+        // For now, apply all active taxes to subtotal
+        // In the future, we can filter by appliesTo (all, food, beverages, alcohol)
+        tax += (subtotal * taxConfig.rate) / 100;
+      }
+    } else {
+      // Fallback to 0 if no active taxes
+      tax = 0;
+    }
+    
     const total = subtotal + tax;
-    return { subtotal, tax, total };
+    return { subtotal, tax, total, taxes: activeTaxes };
   },
 }));
+
+/**
+ * Initialize socket subscriptions for order events
+ * This should be called after socket is initialized (e.g., in DashboardLayout)
+ */
+export function initOrderSocketSubscriptions() {
+  const unsubscribe = subscribeToOrders({
+    'order:created': () => {
+      // Reload orders when a new order is created
+      useOrderStore.getState().loadOrders();
+    },
+    'order:status_changed': () => {
+      // Reload orders when order status changes
+      useOrderStore.getState().loadOrders();
+    },
+    'order:item_updated': () => {
+      // Reload orders when order item is updated (for KDS)
+      useOrderStore.getState().loadOrders();
+    },
+    'order:ready': () => {
+      // Reload orders when order is ready for waiter
+      useOrderStore.getState().loadOrders();
+    },
+    'order:cancelled': () => {
+      // Reload orders when order is cancelled
+      useOrderStore.getState().loadOrders();
+    },
+    'order:sent_to_kitchen': () => {
+      // Reload orders when order is sent to kitchen
+      useOrderStore.getState().loadOrders();
+    },
+  });
+
+  return unsubscribe;
+}

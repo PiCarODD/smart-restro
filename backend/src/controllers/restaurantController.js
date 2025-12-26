@@ -3,16 +3,19 @@ const { NotFoundError, AuthorizationError } = require('../utils/errors');
 
 class RestaurantController {
   /**
-   * Get restaurant by ID
-   * GET /api/restaurants/:id
+   * Get current user's restaurant (from JWT token)
+   * GET /api/restaurants/me
    */
-  async getById(req, res, next) {
+  async getCurrent(req, res, next) {
     try {
-      const { id } = req.params;
+      if (!req.restaurantId) {
+        throw new NotFoundError('Restaurant');
+      }
+
       const restaurant = await Restaurant.findOne({
-        where: { id, tenantId: req.tenantId },
+        where: { id: req.restaurantId, tenantId: req.tenantId },
         include: [
-          { model: require('../models').Tenant, as: 'tenant', attributes: ['id', 'name', 'slug'] }
+          { model: require('../models').Tenant, as: 'tenant', attributes: ['id', 'name', 'slug', 'subscriptionTier', 'subscriptionStatus'] }
         ]
       });
 
@@ -20,19 +23,29 @@ class RestaurantController {
         throw new NotFoundError('Restaurant');
       }
 
-      res.json({ restaurant });
+      // Include subscription tier in response
+      const restaurantData = restaurant.toJSON();
+      if (restaurantData.tenant) {
+        restaurantData.subscriptionTier = restaurantData.tenant.subscriptionTier;
+        restaurantData.subscriptionStatus = restaurantData.tenant.subscriptionStatus;
+      }
+
+      res.json({ restaurant: restaurantData });
     } catch (error) {
       next(error);
     }
   }
 
   /**
-   * Update restaurant
-   * PUT /api/restaurants/:id
+   * Update current user's restaurant (from JWT token)
+   * PUT /api/restaurants/me
    */
-  async update(req, res, next) {
+  async updateCurrent(req, res, next) {
     try {
-      const { id } = req.params;
+      if (!req.restaurantId) {
+        throw new NotFoundError('Restaurant');
+      }
+
       const {
         name,
         slug,
@@ -46,11 +59,13 @@ class RestaurantController {
         phone,
         email,
         website,
+        timezone,
+        currency,
         isActive
       } = req.body;
 
       const restaurant = await Restaurant.findOne({
-        where: { id, tenantId: req.tenantId }
+        where: { id: req.restaurantId, tenantId: req.tenantId }
       });
 
       if (!restaurant) {
@@ -70,8 +85,13 @@ class RestaurantController {
         phone,
         email,
         website,
+        timezone,
+        currency,
         isActive
       });
+
+      // Reload to get updated data
+      await restaurant.reload();
 
       res.json({
         message: 'Restaurant updated successfully',
@@ -83,16 +103,19 @@ class RestaurantController {
   }
 
   /**
-   * Update restaurant settings
-   * PUT /api/restaurants/:id/settings
+   * Update current user's restaurant settings (from JWT token)
+   * PUT /api/restaurants/me/settings
    */
-  async updateSettings(req, res, next) {
+  async updateCurrentSettings(req, res, next) {
     try {
-      const { id } = req.params;
+      if (!req.restaurantId) {
+        throw new NotFoundError('Restaurant');
+      }
+
       const { settings } = req.body;
 
       const restaurant = await Restaurant.findOne({
-        where: { id, tenantId: req.tenantId }
+        where: { id: req.restaurantId, tenantId: req.tenantId }
       });
 
       if (!restaurant) {
@@ -118,14 +141,17 @@ class RestaurantController {
   }
 
   /**
-   * Get restaurant settings
-   * GET /api/restaurants/:id/settings
+   * Get current user's restaurant settings (from JWT token)
+   * GET /api/restaurants/me/settings
    */
-  async getSettings(req, res, next) {
+  async getCurrentSettings(req, res, next) {
     try {
-      const { id } = req.params;
+      if (!req.restaurantId) {
+        throw new NotFoundError('Restaurant');
+      }
+
       const restaurant = await Restaurant.findOne({
-        where: { id, tenantId: req.tenantId },
+        where: { id: req.restaurantId, tenantId: req.tenantId },
         attributes: ['id', 'settings']
       });
 
@@ -142,19 +168,21 @@ class RestaurantController {
   }
 
   /**
-   * Upload restaurant logo
-   * PUT /api/restaurants/:id/logo
+   * Upload current user's restaurant logo (from JWT token)
+   * PUT /api/restaurants/me/logo
    */
-  async uploadLogo(req, res, next) {
+  async uploadCurrentLogo(req, res, next) {
     try {
-      const { id } = req.params;
+      if (!req.restaurantId) {
+        throw new NotFoundError('Restaurant');
+      }
 
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
       }
 
       const restaurant = await Restaurant.findOne({
-        where: { id, tenantId: req.tenantId }
+        where: { id: req.restaurantId, tenantId: req.tenantId }
       });
 
       if (!restaurant) {
@@ -163,13 +191,16 @@ class RestaurantController {
 
       // In production, upload to S3/cloud storage
       // For now, store the file path or URL
-      const logoUrl = `/uploads/logos/${req.file.filename}`;
+      const logoUrl = `/api/uploads/logos/${req.file.filename}`;
 
       await restaurant.update({ logoUrl });
 
+      // Reload to get updated data
+      await restaurant.reload();
+
       res.json({
         message: 'Logo uploaded successfully',
-        logoUrl
+        restaurant
       });
     } catch (error) {
       next(error);

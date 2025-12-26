@@ -3,29 +3,13 @@ const { AuthenticationError } = require('../utils/errors');
 
 class AuthController {
   /**
-   * Register new tenant and first user
-   * POST /api/auth/register
-   */
-  async register(req, res, next) {
-    try {
-      const result = await authService.register(req.body);
-      res.status(201).json({
-        message: 'Registration successful',
-        ...result
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /**
    * Login with email/password
    * POST /api/auth/login
    */
   async login(req, res, next) {
     try {
-      const { email, password } = req.body;
-      const result = await authService.login(email, password);
+      const { email, password, rememberMe = false } = req.body;
+      const result = await authService.login(email, password, rememberMe);
       res.json({
         message: 'Login successful',
         ...result
@@ -88,36 +72,6 @@ class AuthController {
       // For now, just return success (token refresh can be implemented later with refresh tokens)
       res.json({
         message: 'Token refresh - implement refresh token logic if needed'
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /**
-   * Forgot password
-   * POST /api/auth/forgot-password
-   */
-  async forgotPassword(req, res, next) {
-    try {
-      // TODO: Implement password reset email logic
-      res.json({
-        message: 'Password reset email sent (not yet implemented)'
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /**
-   * Reset password
-   * POST /api/auth/reset-password
-   */
-  async resetPassword(req, res, next) {
-    try {
-      // TODO: Implement password reset logic
-      res.json({
-        message: 'Password reset (not yet implemented)'
       });
     } catch (error) {
       next(error);

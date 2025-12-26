@@ -11,6 +11,7 @@ router.use(authMiddleware.authenticate);
 router.use(authMiddleware.authorize('tenant_admin', 'admin', 'manager'));
 
 router.get('/', taxController.list);
+router.post('/list', taxValidator.validateList, taxController.listFiltered);
 router.get('/:id', taxController.getById);
 router.post('/', taxValidator.validateCreate, taxController.create);
 router.put('/:id', taxValidator.validateUpdate, taxController.update);

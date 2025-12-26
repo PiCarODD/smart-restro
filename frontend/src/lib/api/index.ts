@@ -8,4 +8,9 @@ export * from './inventoryApi';
 export * from './restaurantApi';
 export * from './taxesApi';
 export * from './featuresApi';
+export * from './kdsApi';
+export * from './reportsApi';
+export * from './waiterApi';
+export * from './usersApi';
+export * from './tenantApi';
 

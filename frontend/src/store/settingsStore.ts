@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { restaurantApi, taxesApi, featuresApi, getApiError } from '@/lib/api';
+import { restaurantApi, taxesApi, featuresApi, tenantApi, getApiError } from '@/lib/api';
 import type { Restaurant as ApiRestaurant } from '@/lib/api/restaurantApi';
 import type { Tax as ApiTax } from '@/lib/api/taxesApi';
 import type { FeatureToggle as ApiFeatureToggle } from '@/lib/api/featuresApi';
-import { useAuthStore } from './authStore';
+import { useRestaurantStore } from './restaurantStore';
 
 export interface FeatureToggle {
   id: string;
@@ -80,13 +80,24 @@ interface SettingsStore {
   kdsTheme: 'light' | 'dark';
   setKdsTheme: (theme: 'light' | 'dark') => void;
   
-  // Current Plan (local only, for feature gating)
+  // Current Plan (for feature gating)
   currentPlan: 'starter' | 'professional' | 'enterprise';
-  setCurrentPlan: (plan: 'starter' | 'professional' | 'enterprise') => void;
+  updateSubscriptionTier: (tier: 'starter' | 'professional' | 'enterprise') => Promise<void>;
   
   // Error handling
   error: string | null;
   clearError: () => void;
+}
+
+// Store subscription tier from restaurant
+let currentSubscriptionTier: 'starter' | 'professional' | 'enterprise' = 'professional';
+
+export function getSubscriptionTier(): 'starter' | 'professional' | 'enterprise' {
+  return currentSubscriptionTier;
+}
+
+export function setSubscriptionTier(tier: 'starter' | 'professional' | 'enterprise') {
+  currentSubscriptionTier = tier;
 }
 
 // Map API Restaurant to RestaurantInfo
@@ -102,7 +113,7 @@ function mapApiRestaurantToInfo(api: ApiRestaurant): RestaurantInfo {
     website: api.website || '',
     currency: api.currency || 'MMK',
     timezone: api.timezone || 'Asia/Yangon',
-    logo: api.logoUrl,
+    logo: api.logoUrl || undefined,
   };
 }
 
@@ -160,17 +171,58 @@ export const useSettingsStore = create<SettingsStore>()(
       error: null,
 
       loadRestaurant: async () => {
-        const user = useAuthStore.getState().user;
-        if (!user?.restaurantId) {
-          set({ error: 'No restaurant ID found' });
-          return;
-        }
-
         set({ isLoadingRestaurant: true, error: null });
         try {
-          const response = await restaurantApi.getById(user.restaurantId);
-          const info = mapApiRestaurantToInfo(response.restaurant);
+          // No restaurant ID needed - backend extracts from JWT token
+          const response = await restaurantApi.getById();
+          const apiRestaurant = response.restaurant;
+          const info = mapApiRestaurantToInfo(apiRestaurant);
+          
+          // Update subscription tier if available
+          if (apiRestaurant.subscriptionTier) {
+            const tier = apiRestaurant.subscriptionTier as 'starter' | 'professional' | 'enterprise';
+            setSubscriptionTier(tier);
+            set({ currentPlan: tier });
+          }
+          
           set({ restaurantInfo: info, isLoadingRestaurant: false });
+          
+          // Sync with restaurantStore for header display
+          const restaurantStore = useRestaurantStore.getState();
+          if (restaurantStore.restaurant) {
+            useRestaurantStore.setState({
+              restaurant: {
+                ...restaurantStore.restaurant,
+                name: info.name,
+                address: info.address,
+                phone: info.phone,
+                logo: info.logo,
+              },
+            });
+          } else {
+            // Initialize restaurantStore if it doesn't exist
+            useRestaurantStore.setState({
+              restaurant: {
+                id: info.id || '',
+                name: info.name,
+                address: info.address,
+                phone: info.phone,
+                logo: info.logo,
+                settings: {
+                  features: {
+                    kds: { enabled: true },
+                    waiterApp: { enabled: true },
+                    inventory: { enabled: true, autoDeduction: false },
+                    reservations: { enabled: false },
+                  },
+                  operations: {
+                    taxRate: 0,
+                    currency: info.currency || 'MMK',
+                  },
+                },
+              },
+            });
+          }
         } catch (error) {
           const apiError = getApiError(error);
           set({ error: apiError.message || 'Failed to load restaurant', isLoadingRestaurant: false });
@@ -206,9 +258,21 @@ export const useSettingsStore = create<SettingsStore>()(
             country: addressParts[5] || undefined,
           };
 
-          const response = await restaurantApi.update(current.id, updateData);
+          // No restaurant ID needed - backend extracts from JWT token
+          const response = await restaurantApi.update(updateData);
           const savedInfo = mapApiRestaurantToInfo(response.restaurant);
           set({ restaurantInfo: savedInfo });
+          
+          // Update restaurantStore to sync the name in the header
+          const restaurantStore = useRestaurantStore.getState();
+          if (restaurantStore.restaurant) {
+            useRestaurantStore.setState({
+              restaurant: {
+                ...restaurantStore.restaurant,
+                name: savedInfo.name,
+              },
+            });
+          }
         } catch (error) {
           // Revert on error
           set({ restaurantInfo: current });
@@ -218,15 +282,10 @@ export const useSettingsStore = create<SettingsStore>()(
       },
 
       uploadLogo: async (file: File) => {
-        const current = get().restaurantInfo;
-        if (!current?.id) {
-          set({ error: 'No restaurant loaded' });
-          return;
-        }
-
         set({ error: null });
         try {
-          const response = await restaurantApi.uploadLogo(current.id, file);
+          // No restaurant ID needed - backend extracts from JWT token
+          const response = await restaurantApi.uploadLogo(file);
           const updatedInfo = mapApiRestaurantToInfo(response.restaurant);
           set({ restaurantInfo: updatedInfo });
         } catch (error) {
@@ -399,7 +458,22 @@ export const useSettingsStore = create<SettingsStore>()(
 
       setTheme: (theme) => set({ theme }),
       setKdsTheme: (kdsTheme) => set({ kdsTheme }),
-      setCurrentPlan: (currentPlan) => set({ currentPlan }),
+      
+      updateSubscriptionTier: async (tier) => {
+        set({ error: null });
+        try {
+          await tenantApi.updateSubscription(tier);
+          setSubscriptionTier(tier);
+          set({ currentPlan: tier });
+          // Reload restaurant to get updated subscription tier
+          await get().loadRestaurant();
+        } catch (error) {
+          const apiError = getApiError(error);
+          set({ error: apiError.message || 'Failed to update subscription tier' });
+          throw error;
+        }
+      },
+      
       clearError: () => set({ error: null }),
     }),
     {

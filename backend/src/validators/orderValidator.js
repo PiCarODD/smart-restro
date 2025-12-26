@@ -27,7 +27,7 @@ const createOrderSchema = Joi.object({
   source: Joi.string().valid('pos', 'waiter_app', 'self_order', 'online').optional().default('pos'),
   notes: Joi.string().optional().max(1000),
   kitchenNotes: Joi.string().optional().max(1000),
-  items: Joi.array().items(orderItemSchema).required().min(1)
+  items: Joi.array().items(orderItemSchema).optional().default([])
 });
 
 const updateOrderSchema = Joi.object({

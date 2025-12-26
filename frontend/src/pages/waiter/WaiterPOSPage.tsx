@@ -27,7 +27,7 @@ import { useOrderStore } from '@/store/orderStore';
 import { useMenuStore } from '@/store/menuStore';
 import { useTableStore } from '@/store/tableStore';
 import { useAuthStore } from '@/store/authStore';
-import { MenuItem, MenuVariant, MenuModifier } from '@/types';
+import { MenuItem, MenuVariant, MenuModifier, OrderItem } from '@/types';
 import { formatCurrency, cn } from '@/lib/utils';
 
 export function WaiterPOSPage() {
@@ -55,6 +55,13 @@ export function WaiterPOSPage() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isGuestDialogOpen, setIsGuestDialogOpen] = useState(false);
   const [guestCount, setGuestCount] = useState(2);
+  const [pendingOrderInfo, setPendingOrderInfo] = useState<{
+    tableId: string;
+    tableName: string;
+    guestCount: number;
+    waiterId?: string;
+    waiterName?: string;
+  } | null>(null);
   
   // Item customization
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
@@ -72,29 +79,62 @@ export function WaiterPOSPage() {
   }, [loadCategories, loadMenuItems, loadOrders]);
 
   useEffect(() => {
-    if (tableId && table) {
+    if (tableId && table && !currentOrder) {
+      // Check if there's an existing active order for this table
       const existingOrder = getActiveOrderByTable(tableId);
       if (existingOrder) {
         setCurrentOrder(existingOrder);
-      } else {
+      } else if (!isGuestDialogOpen) {
+        // Show guest count dialog for new order only if dialog is not already open
         setIsGuestDialogOpen(true);
       }
     }
-  }, [tableId, table, getActiveOrderByTable, setCurrentOrder]);
+  }, [tableId, table]);
 
-  const handleStartOrder = async () => {
-    if (tableId && table) {
-      const newOrder = await createOrder(
+  const handleStartOrder = () => {
+    if (tableId && table && !currentOrder) {
+      // Store order info but don't create order yet - wait for first item
+      setPendingOrderInfo({
         tableId,
-        `Table ${table.tableNumber}`,
+        tableName: `Table ${table.tableNumber}`,
         guestCount,
-        user?.id,
-        user ? `${user.firstName} ${user.lastName}` : undefined
-      );
-      setCurrentOrder(newOrder);
-      updateTableStatus(tableId, 'occupied');
+        waiterId: user?.id,
+        waiterName: user ? `${user.firstName} ${user.lastName}` : undefined
+      });
       setIsGuestDialogOpen(false);
+      // Don't create order yet - it will be created when first item is added
     }
+  };
+
+  // Create order when first item is added
+  const createOrderIfNeeded = async (firstItem?: Omit<OrderItem, 'id' | 'status'>) => {
+    if (pendingOrderInfo && !currentOrder) {
+      try {
+        // Create order with empty items first
+        const newOrder = await createOrder(
+          pendingOrderInfo.tableId,
+          pendingOrderInfo.tableName,
+          pendingOrderInfo.guestCount,
+          pendingOrderInfo.waiterId,
+          pendingOrderInfo.waiterName
+        );
+        setCurrentOrder(newOrder);
+        updateTableStatus(pendingOrderInfo.tableId, 'occupied', pendingOrderInfo.guestCount);
+        const wasPending = !!pendingOrderInfo;
+        setPendingOrderInfo(null); // Clear pending info
+        
+        // If first item was provided, add it to the order after creation
+        if (firstItem && wasPending) {
+          await addItemToOrder(newOrder.id, firstItem);
+        }
+        
+        return newOrder;
+      } catch (error) {
+        console.error('Failed to create order:', error);
+        throw error;
+      }
+    }
+    return currentOrder;
   };
 
   const filteredItems = menuItems.filter(item => {
@@ -112,14 +152,14 @@ export function WaiterPOSPage() {
     setItemNotes('');
   };
 
-  const handleAddToOrder = () => {
-    if (!currentOrder || !selectedItem) return;
+  const handleAddToOrder = async () => {
+    if (!selectedItem) return;
     
     const basePrice = selectedVariant?.price || selectedItem.basePrice;
     const modifiersTotal = selectedModifiers.reduce((sum, m) => sum + m.price, 0);
     const totalUnitPrice = basePrice + modifiersTotal;
     
-    addItemToOrder(currentOrder.id, {
+    const itemData: Omit<OrderItem, 'id' | 'status'> = {
       menuItemId: selectedItem.id,
       name: selectedItem.name,
       quantity: itemQuantity,
@@ -128,7 +168,18 @@ export function WaiterPOSPage() {
       variant: selectedVariant?.name,
       modifiers: selectedModifiers.map(m => m.name),
       notes: itemNotes || undefined,
-    });
+    };
+    
+    // Create order if needed (when adding first item) and include the item
+    const hadPendingInfo = !!pendingOrderInfo;
+    const order = await createOrderIfNeeded(itemData);
+    if (!order) return;
+    
+    // If order was just created with pending info, item was already added
+    // Otherwise, add the item to existing order
+    if (!hadPendingInfo) {
+      addItemToOrder(order.id, itemData);
+    }
     
     setSelectedItem(null);
   };
@@ -386,11 +437,11 @@ export function WaiterPOSPage() {
           </SheetHeader>
           
           <ScrollArea className="flex-1 mt-4">
-            {!currentOrder || currentOrder.items.length === 0 ? (
+            {(!currentOrder && !pendingOrderInfo) || (currentOrder && currentOrder.items.length === 0) ? (
               <div className="text-center text-muted-foreground py-8">
                 {t('waiter.noItemsYet')}
               </div>
-            ) : (
+            ) : currentOrder ? (
               <div className="space-y-3">
                 {currentOrder.items.map(item => (
                   <div key={item.id} className="flex gap-3 p-3 bg-muted/50 rounded-lg">
@@ -414,7 +465,7 @@ export function WaiterPOSPage() {
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6 text-destructive"
-                        onClick={() => removeOrderItem(currentOrder.id, item.id)}
+                        onClick={() => currentOrder && removeOrderItem(currentOrder.id, item.id)}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -443,7 +494,7 @@ export function WaiterPOSPage() {
                   </div>
                 ))}
               </div>
-            )}
+            ) : null}
           </ScrollArea>
 
           {currentOrder && currentOrder.items.length > 0 && (
@@ -472,7 +523,17 @@ export function WaiterPOSPage() {
       </Sheet>
 
       {/* Guest Count Dialog */}
-      <Dialog open={isGuestDialogOpen} onOpenChange={setIsGuestDialogOpen}>
+      <Dialog 
+        open={isGuestDialogOpen} 
+        onOpenChange={(open) => {
+          if (!open && !currentOrder) {
+            // If dialog is closed and no order exists, navigate back to waiter tables
+            navigate('/waiter');
+          } else {
+            setIsGuestDialogOpen(open);
+          }
+        }}
+      >
         <DialogContent className="max-w-xs">
           <DialogHeader>
             <DialogTitle>Start Order</DialogTitle>
@@ -502,7 +563,7 @@ export function WaiterPOSPage() {
             <Button variant="outline" onClick={() => navigate('/waiter')}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleStartOrder}>
+            <Button onClick={handleStartOrder} disabled={!tableId || !table || !!currentOrder}>
               {t('waiter.startOrder')}
             </Button>
           </DialogFooter>

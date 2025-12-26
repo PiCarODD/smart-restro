@@ -20,6 +20,8 @@ export interface Restaurant {
   currency?: string;
   settings?: Record<string, any>;
   isActive: boolean;
+  subscriptionTier?: 'starter' | 'professional' | 'enterprise';
+  subscriptionStatus?: string;
 }
 
 export interface RestaurantSettings {
@@ -44,49 +46,54 @@ export const restaurantApi = {
     }
   },
 
-  getById: async (id: string): Promise<{ restaurant: Restaurant }> => {
+  getById: async (): Promise<{ restaurant: Restaurant }> => {
     try {
-      const response = await apiClient.get<{ restaurant: Restaurant }>(`/restaurants/${id}`);
+      // Get current user's restaurant - no ID needed, uses JWT token
+      const response = await apiClient.get<{ restaurant: Restaurant }>('/restaurants/me');
       return response.data;
     } catch (error) {
       throw getApiError(error);
     }
   },
 
-  update: async (id: string, data: Partial<Restaurant>): Promise<{ restaurant: Restaurant }> => {
+  update: async (data: Partial<Restaurant>): Promise<{ restaurant: Restaurant }> => {
     try {
-      const response = await apiClient.put<{ restaurant: Restaurant }>(`/restaurants/${id}`, data);
+      // Update current user's restaurant - no ID needed, uses JWT token
+      const response = await apiClient.put<{ restaurant: Restaurant }>('/restaurants/me', data);
       return response.data;
     } catch (error) {
       throw getApiError(error);
     }
   },
 
-  getSettings: async (id: string): Promise<{ settings: RestaurantSettings }> => {
+  getSettings: async (): Promise<{ settings: RestaurantSettings }> => {
     try {
-      const response = await apiClient.get<{ settings: RestaurantSettings }>(`/restaurants/${id}/settings`);
+      // Get current user's restaurant settings - no ID needed, uses JWT token
+      const response = await apiClient.get<{ settings: RestaurantSettings }>('/restaurants/me/settings');
       return response.data;
     } catch (error) {
       throw getApiError(error);
     }
   },
 
-  updateSettings: async (id: string, settings: RestaurantSettings): Promise<{ restaurant: Restaurant }> => {
+  updateSettings: async (settings: RestaurantSettings): Promise<{ restaurant: Restaurant }> => {
     try {
-      const response = await apiClient.put<{ restaurant: Restaurant }>(`/restaurants/${id}/settings`, { settings });
+      // Update current user's restaurant settings - no ID needed, uses JWT token
+      const response = await apiClient.put<{ restaurant: Restaurant }>('/restaurants/me/settings', { settings });
       return response.data;
     } catch (error) {
       throw getApiError(error);
     }
   },
 
-  uploadLogo: async (id: string, logoFile: File): Promise<{ restaurant: Restaurant }> => {
+  uploadLogo: async (logoFile: File): Promise<{ restaurant: Restaurant }> => {
     try {
       const formData = new FormData();
       formData.append('logo', logoFile);
 
+      // Upload logo for current user's restaurant - no ID needed, uses JWT token
       const response = await apiClient.put<{ restaurant: Restaurant }>(
-        `/restaurants/${id}/logo`,
+        '/restaurants/me/logo',
         formData,
         {
           headers: {

@@ -22,7 +22,7 @@ class AuthService {
   /**
    * Generate JWT token
    */
-  generateToken(user, restaurantId = null) {
+  generateToken(user, restaurantId = null, rememberMe = false) {
     const payload = {
       id: user.id,
       tenantId: user.tenantId,
@@ -31,8 +31,14 @@ class AuthService {
       role: user.role
     };
 
+    // Set token expiration based on rememberMe
+    // If rememberMe is true, use 30 days, otherwise use 1 day (or default from env)
+    const expiresIn = rememberMe 
+      ? '30d' 
+      : (process.env.JWT_EXPIRES_IN || '1d');
+
     return jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRES_IN || '7d'
+      expiresIn
     });
   }
 
@@ -121,7 +127,7 @@ class AuthService {
   /**
    * Login with email/password
    */
-  async login(email, password) {
+  async login(email, password, rememberMe = false) {
     const user = await User.findOne({
       where: { email, isActive: true },
       include: [
@@ -143,8 +149,8 @@ class AuthService {
     // Update last login
     await user.update({ lastLoginAt: new Date() });
 
-    // Generate token
-    const token = this.generateToken(user, user.restaurantId);
+    // Generate token with rememberMe option
+    const token = this.generateToken(user, user.restaurantId, rememberMe);
 
     return {
       user: {

@@ -20,7 +20,8 @@ import { useOrderStore } from '@/store/orderStore';
 import { useMenuStore } from '@/store/menuStore';
 import { useTableStore } from '@/store/tableStore';
 import { useAuthStore } from '@/store/authStore';
-import { MenuItem } from '@/types';
+import { useSettingsStore } from '@/store/settingsStore';
+import { MenuItem, OrderItem } from '@/types';
 import { formatCurrency } from '@/lib/utils';
 import { ModifierDialog } from '@/components/features/pos/ModifierDialog';
 
@@ -31,6 +32,7 @@ export function POSPage() {
   const { user } = useAuthStore();
   const { tables, updateTableStatus } = useTableStore();
   const { categories, menuItems, loadCategories, loadMenuItems } = useMenuStore();
+  const { taxes } = useSettingsStore();
   const { 
     currentOrder, 
     createOrder, 
@@ -41,6 +43,7 @@ export function POSPage() {
     removeOrderItem,
     updateOrderStatus,
     loadOrders,
+    calculateOrderTotals,
   } = useOrderStore();
 
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -50,6 +53,13 @@ export function POSPage() {
   const [isSendDialogOpen, setIsSendDialogOpen] = useState(false);
   const [guestCount, setGuestCount] = useState(1);
   const [isGuestDialogOpen, setIsGuestDialogOpen] = useState(false);
+  const [pendingOrderInfo, setPendingOrderInfo] = useState<{
+    tableId: string;
+    tableName: string;
+    guestCount: number;
+    waiterId?: string;
+    waiterName?: string;
+  } | null>(null);
 
   const table = tables.find(t => t.id === tableId);
 
@@ -60,31 +70,104 @@ export function POSPage() {
   }, [loadCategories, loadMenuItems, loadOrders]);
 
   useEffect(() => {
-    if (tableId && table) {
+    if (tableId && table && !currentOrder && !pendingOrderInfo) {
       // Check if there's an existing active order for this table
       const existingOrder = getActiveOrderByTable(tableId);
       if (existingOrder) {
         setCurrentOrder(existingOrder);
-      } else {
-        // Show guest count dialog for new order
+      } else if (!isGuestDialogOpen) {
+        // Show guest count dialog for new order only if dialog is not already open
         setIsGuestDialogOpen(true);
       }
     }
-  }, [tableId, table, getActiveOrderByTable, setCurrentOrder]);
+  }, [tableId, table]);
 
-  const handleStartOrder = async () => {
-    if (tableId && table) {
-      const newOrder = await createOrder(
+  const handleStartOrder = () => {
+    if (tableId && table && !currentOrder) {
+      // Store order info but don't create order yet - wait for first item
+      setPendingOrderInfo({
         tableId,
-        `Table ${table.tableNumber}`,
+        tableName: `Table ${table.tableNumber}`,
         guestCount,
-        user?.id,
-        user ? `${user.firstName} ${user.lastName}` : undefined
-      );
-      setCurrentOrder(newOrder);
-      updateTableStatus(tableId, 'occupied');
+        waiterId: user?.id,
+        waiterName: user ? `${user.firstName} ${user.lastName}` : undefined
+      });
       setIsGuestDialogOpen(false);
+      // Don't create order yet - it will be created when first item is added
     }
+  };
+
+  // Create order when first item is added
+  const createOrderIfNeeded = async (firstItem?: Omit<OrderItem, 'id' | 'status'>) => {
+    // If order already exists, return it
+    if (currentOrder) {
+      return currentOrder;
+    }
+
+    // If we have pending order info, use it
+    if (pendingOrderInfo) {
+      try {
+        // Create order with empty items first
+        const newOrder = await createOrder(
+          pendingOrderInfo.tableId,
+          pendingOrderInfo.tableName,
+          pendingOrderInfo.guestCount,
+          pendingOrderInfo.waiterId,
+          pendingOrderInfo.waiterName
+        );
+        setCurrentOrder(newOrder);
+        updateTableStatus(pendingOrderInfo.tableId, 'occupied', pendingOrderInfo.guestCount);
+        const wasPending = !!pendingOrderInfo;
+        setPendingOrderInfo(null); // Clear pending info
+        
+        // If first item was provided, add it to the order after creation
+        if (firstItem && wasPending) {
+          await addItemToOrder(newOrder.id, firstItem);
+          // Reload currentOrder from store to get updated order with items
+          const { currentOrder: updatedOrder } = useOrderStore.getState();
+          if (updatedOrder && updatedOrder.id === newOrder.id) {
+            setCurrentOrder(updatedOrder);
+          }
+        }
+        
+        return newOrder;
+      } catch (error) {
+        console.error('Failed to create order:', error);
+        throw error;
+      }
+    }
+
+    // If no pending info but we have tableId, create order with default values
+    if (tableId && table && !currentOrder) {
+      try {
+        const newOrder = await createOrder(
+          tableId,
+          `Table ${table.tableNumber}`,
+          1, // Default guest count
+          user?.id,
+          user ? `${user.firstName} ${user.lastName}` : undefined
+        );
+        setCurrentOrder(newOrder);
+        updateTableStatus(tableId, 'occupied', 1);
+        
+        // If first item was provided, add it to the order after creation
+        if (firstItem) {
+          await addItemToOrder(newOrder.id, firstItem);
+          // Get updated order from store after item is added
+          const updatedOrder = useOrderStore.getState().currentOrder;
+          if (updatedOrder && updatedOrder.id === newOrder.id) {
+            setCurrentOrder(updatedOrder);
+          }
+        }
+        
+        return newOrder;
+      } catch (error) {
+        console.error('Failed to create order:', error);
+        throw error;
+      }
+    }
+
+    return null;
   };
 
   const filteredItems = menuItems.filter(item => {
@@ -94,58 +177,111 @@ export function POSPage() {
     return matchesSearch && matchesCategory;
   });
 
-  const handleItemClick = (item: MenuItem) => {
-    if (item.variants.length > 0 || item.modifiers.length > 0) {
+  const handleItemClick = async (item: MenuItem) => {
+    // Don't allow adding items if guest dialog is still open
+    if (isGuestDialogOpen) {
+      return;
+    }
+    
+    // Check if item has variants or modifiers
+    const hasVariants = item.variants && item.variants.length > 0;
+    const hasModifiers = item.modifiers && item.modifiers.length > 0;
+    
+    if (hasVariants || hasModifiers) {
       setSelectedItem(item);
       setIsModifierOpen(true);
     } else {
-      addItemDirectly(item);
+      await addItemDirectly(item);
     }
   };
 
-  const addItemDirectly = (item: MenuItem) => {
-    if (!currentOrder) return;
-    
-    addItemToOrder(currentOrder.id, {
-      menuItemId: item.id,
-      name: item.name,
-      quantity: 1,
-      unitPrice: item.basePrice,
-      totalPrice: item.basePrice,
-      modifiers: [],
-    });
+  const addItemDirectly = async (item: MenuItem) => {
+    try {
+      const itemData: Omit<OrderItem, 'id' | 'status'> = {
+        menuItemId: item.id,
+        name: item.name,
+        quantity: 1,
+        unitPrice: item.basePrice,
+        totalPrice: item.basePrice,
+        modifiers: [],
+      };
+      
+      // Create order if needed (when adding first item) and include the item
+      const hadPendingInfo = !!pendingOrderInfo;
+      const order = await createOrderIfNeeded(itemData);
+      if (!order) {
+        console.error('Failed to create or get order');
+        return;
+      }
+      
+      // If order was just created with pending info, item was already added
+      // Otherwise, add the item to existing order
+      if (!hadPendingInfo) {
+        await addItemToOrder(order.id, itemData);
+        // Get updated order from store after item is added
+        const updatedOrder = useOrderStore.getState().currentOrder;
+        if (updatedOrder && updatedOrder.id === order.id) {
+          setCurrentOrder(updatedOrder);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to add item to order:', error);
+      // Show error to user (you can add a toast notification here)
+    }
   };
 
-  const handleAddWithModifiers = (
+  const handleAddWithModifiers = async (
     item: MenuItem, 
     quantity: number,
     variant: { name: string; price: number } | null, 
     selectedModifiers: { name: string; price: number }[],
     notes: string
   ) => {
-    if (!currentOrder) return;
-    
-    const unitPrice = variant?.price || item.basePrice;
-    const modifiersTotal = selectedModifiers.reduce((sum, m) => sum + m.price, 0);
-    const totalUnitPrice = unitPrice + modifiersTotal;
-    
-    addItemToOrder(currentOrder.id, {
-      menuItemId: item.id,
-      name: item.name,
-      quantity,
-      unitPrice: totalUnitPrice,
-      totalPrice: totalUnitPrice * quantity,
-      variant: variant?.name,
-      modifiers: selectedModifiers.map(m => m.name),
-      notes: notes || undefined,
-    });
-    
-    setIsModifierOpen(false);
-    setSelectedItem(null);
+    try {
+      const unitPrice = variant?.price || item.basePrice;
+      const modifiersTotal = selectedModifiers.reduce((sum, m) => sum + m.price, 0);
+      const totalUnitPrice = unitPrice + modifiersTotal;
+      
+      const itemData: Omit<OrderItem, 'id' | 'status'> = {
+        menuItemId: item.id,
+        name: item.name,
+        quantity,
+        unitPrice: totalUnitPrice,
+        totalPrice: totalUnitPrice * quantity,
+        variant: variant?.name,
+        modifiers: selectedModifiers.map(m => m.name),
+        notes: notes || undefined,
+      };
+      
+      // Create order if needed (when adding first item) and include the item
+      const hadPendingInfo = !!pendingOrderInfo;
+      const order = await createOrderIfNeeded(itemData);
+      if (!order) {
+        console.error('Failed to create or get order');
+        return;
+      }
+      
+      // If order was just created with pending info, item was already added
+      // Otherwise, add the item to existing order
+      if (!hadPendingInfo) {
+        await addItemToOrder(order.id, itemData);
+        // Get updated order from store after item is added
+        const updatedOrder = useOrderStore.getState().currentOrder;
+        if (updatedOrder && updatedOrder.id === order.id) {
+          setCurrentOrder(updatedOrder);
+        }
+      }
+      
+      setIsModifierOpen(false);
+      setSelectedItem(null);
+    } catch (error) {
+      console.error('Failed to add item with modifiers to order:', error);
+      // Show error to user (you can add a toast notification here)
+    }
   };
 
   const handleQuantityChange = (itemId: string, delta: number) => {
-    if (!currentOrder) return;
+    if (!currentOrder || !currentOrder.items) return;
     
     const item = currentOrder.items.find(i => i.id === itemId);
     if (!item) return;
@@ -162,7 +298,7 @@ export function POSPage() {
   };
 
   const handleSendToKitchen = () => {
-    if (!currentOrder || currentOrder.items.length === 0) return;
+    if (!currentOrder || !currentOrder.items || currentOrder.items.length === 0) return;
     
     updateOrderStatus(currentOrder.id, 'confirmed');
     setIsSendDialogOpen(false);
@@ -262,7 +398,7 @@ export function POSPage() {
         <div className="p-4 border-b">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Current Order</h2>
-            {currentOrder && currentOrder.items.length > 0 && (
+            {currentOrder && currentOrder.items && currentOrder.items.length > 0 && (
               <Badge>{currentOrder.items.length} items</Badge>
             )}
           </div>
@@ -270,94 +406,118 @@ export function POSPage() {
 
         {/* Order Items */}
         <ScrollArea className="flex-1 p-4">
-          {!currentOrder || currentOrder.items.length === 0 ? (
+          {(!currentOrder && !pendingOrderInfo) || (currentOrder && (!currentOrder.items || currentOrder.items.length === 0)) ? (
             <div className="text-center text-muted-foreground py-8">
-              <p>No items yet</p>
+              <p>{pendingOrderInfo ? 'Select items to add to order' : 'No items yet'}</p>
               <p className="text-sm">Click on items to add them</p>
             </div>
-          ) : (
+          ) : currentOrder && currentOrder.items ? (
             <div className="space-y-3">
-              {currentOrder.items.map(item => (
-                <div key={item.id} className="flex gap-3 p-2 rounded-lg bg-muted/50">
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">{item.name}</p>
-                    {item.variant && (
-                      <p className="text-xs text-muted-foreground">{item.variant}</p>
-                    )}
-                    {item.modifiers.length > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        {item.modifiers.join(', ')}
+              {currentOrder.items.map(item => {
+                if (!currentOrder) return null;
+                return (
+                  <div key={item.id} className="flex gap-3 p-2 rounded-lg bg-muted/50">
+                    <div className="flex-1">
+                      <p className="font-medium text-sm">{item.name}</p>
+                      {item.variant && (
+                        <p className="text-xs text-muted-foreground">{item.variant}</p>
+                      )}
+                      {item.modifiers && item.modifiers.length > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          {item.modifiers.join(', ')}
+                        </p>
+                      )}
+                      {item.notes && (
+                        <p className="text-xs text-blue-600">Note: {item.notes}</p>
+                      )}
+                      <p className="text-sm font-medium mt-1">
+                        {formatCurrency(item.totalPrice)}
                       </p>
-                    )}
-                    {item.notes && (
-                      <p className="text-xs text-blue-600">Note: {item.notes}</p>
-                    )}
-                    <p className="text-sm font-medium mt-1">
-                      {formatCurrency(item.totalPrice)}
-                    </p>
-                  </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 text-destructive"
-                      onClick={() => removeOrderItem(currentOrder.id, item.id)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                    <div className="flex items-center gap-1">
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="icon"
-                        className="h-7 w-7"
-                        onClick={() => handleQuantityChange(item.id, -1)}
+                        className="h-6 w-6 text-destructive"
+                        onClick={() => currentOrder && removeOrderItem(currentOrder.id, item.id)}
                       >
-                        <Minus className="h-3 w-3" />
+                        <X className="h-4 w-4" />
                       </Button>
-                      <span className="w-6 text-center text-sm font-medium">
-                        {item.quantity}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => handleQuantityChange(item.id, 1)}
-                      >
-                        <Plus className="h-3 w-3" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => handleQuantityChange(item.id, -1)}
+                        >
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                        <span className="w-6 text-center text-sm font-medium">
+                          {item.quantity}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => handleQuantityChange(item.id, 1)}
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-          )}
+          ) : null}
         </ScrollArea>
 
         {/* Order Totals */}
-        {currentOrder && currentOrder.items.length > 0 && (
-          <div className="p-4 border-t space-y-2">
-            <div className="flex justify-between text-sm">
-              <span>Subtotal</span>
-              <span>{formatCurrency(currentOrder.subtotal)}</span>
+        {currentOrder && currentOrder.items && currentOrder.items.length > 0 && (() => {
+          // Capture currentOrder in local variable to prevent null access
+          const order = currentOrder;
+          if (!order || !order.items) return null;
+          
+          const totals = calculateOrderTotals(order.items);
+          const activeTaxes = taxes.filter(tax => tax.enabled);
+          
+          return (
+            <div className="p-4 border-t space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Subtotal</span>
+                <span>{formatCurrency(totals.subtotal)}</span>
+              </div>
+              {activeTaxes.length > 0 ? (
+                activeTaxes.map((tax) => {
+                  const taxAmount = (totals.subtotal * tax.rate) / 100;
+                  return (
+                    <div key={tax.id} className="flex justify-between text-sm text-muted-foreground">
+                      <span>{tax.name} ({tax.rate}%)</span>
+                      <span>{formatCurrency(taxAmount)}</span>
+                    </div>
+                  );
+                })
+              ) : totals.tax > 0 ? (
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  <span>Tax</span>
+                  <span>{formatCurrency(totals.tax)}</span>
+                </div>
+              ) : null}
+              <Separator />
+              <div className="flex justify-between font-bold">
+                <span>Total</span>
+                <span>{formatCurrency(totals.total)}</span>
+              </div>
             </div>
-            <div className="flex justify-between text-sm text-muted-foreground">
-              <span>Tax (8%)</span>
-              <span>{formatCurrency(currentOrder.tax)}</span>
-            </div>
-            <Separator />
-            <div className="flex justify-between font-bold">
-              <span>Total</span>
-              <span>{formatCurrency(currentOrder.total)}</span>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Actions */}
         <div className="p-4 border-t space-y-2">
           <Button 
             className="w-full" 
             size="lg"
-            disabled={!currentOrder || currentOrder.items.length === 0}
+            disabled={!currentOrder || !currentOrder.items || currentOrder.items.length === 0}
             onClick={() => setIsSendDialogOpen(true)}
           >
             <Send className="mr-2 h-4 w-4" />
@@ -385,12 +545,22 @@ export function POSPage() {
       )}
 
       {/* Guest Count Dialog */}
-      <Dialog open={isGuestDialogOpen} onOpenChange={setIsGuestDialogOpen}>
+      <Dialog 
+        open={isGuestDialogOpen} 
+        onOpenChange={(open) => {
+          if (!open && !currentOrder) {
+            // If dialog is closed and no order exists, navigate back to tables
+            navigate('/tables');
+          } else {
+            setIsGuestDialogOpen(open);
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Start New Order</DialogTitle>
             <DialogDescription>
-              Enter the number of guests for Table {table.tableNumber}
+              Enter the number of guests for Table {table?.tableNumber}
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center justify-center gap-4 py-6">
@@ -417,7 +587,7 @@ export function POSPage() {
             <Button variant="outline" onClick={() => navigate('/tables')}>
               Cancel
             </Button>
-            <Button onClick={handleStartOrder}>
+            <Button onClick={handleStartOrder} disabled={!tableId || !table || !!currentOrder}>
               Start Order
             </Button>
           </DialogFooter>

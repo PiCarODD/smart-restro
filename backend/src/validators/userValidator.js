@@ -4,7 +4,7 @@ const createUserSchema = Joi.object({
   email: Joi.string().required().email(),
   password: Joi.string().required().min(8).max(100),
   firstName: Joi.string().required().min(1).max(100),
-  lastName: Joi.string().required().min(1).max(100),
+  lastName: Joi.string().optional().allow('', null).max(100),
   phone: Joi.string().optional().max(50),
   role: Joi.string().valid(
     'tenant_admin',
@@ -22,8 +22,9 @@ const createUserSchema = Joi.object({
 });
 
 const updateUserSchema = Joi.object({
-  firstName: Joi.string().optional().min(1).max(100),
-  lastName: Joi.string().optional().min(1).max(100),
+  fullName: Joi.string().optional().min(1).max(200), // Accept fullName instead of firstName/lastName
+  firstName: Joi.string().optional().min(1).max(100), // Keep for backward compatibility with admin operations
+  lastName: Joi.string().optional().min(1).max(100), // Keep for backward compatibility with admin operations
   phone: Joi.string().optional().max(50),
   role: Joi.string().valid(
     'tenant_admin',

@@ -4,9 +4,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CategoriesPage } from './CategoriesPage';
 import { MenuItemsPage } from './MenuItemsPage';
 import { RecipesPage } from './RecipesPage';
+import { useSettingsStore } from '@/store/settingsStore';
 
 export function MenuPage() {
   const { t } = useTranslation();
+  const { currentPlan } = useSettingsStore();
+  
+  // Recipes & Costs requires professional+ subscription
+  const canAccessRecipes = currentPlan !== 'starter';
   
   return (
     <div className="space-y-6">
@@ -20,10 +25,12 @@ export function MenuPage() {
             <FolderTree className="h-4 w-4" />
             {t('menu.categories')}
           </TabsTrigger>
-          <TabsTrigger value="recipes" className="gap-2">
-            <FlaskConical className="h-4 w-4" />
-            {t('menu.recipesAndCosts')}
-          </TabsTrigger>
+          {canAccessRecipes && (
+            <TabsTrigger value="recipes" className="gap-2">
+              <FlaskConical className="h-4 w-4" />
+              {t('menu.recipesAndCosts')}
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="items" className="mt-6">
@@ -34,9 +41,11 @@ export function MenuPage() {
           <CategoriesPage />
         </TabsContent>
 
-        <TabsContent value="recipes" className="mt-6">
-          <RecipesPage />
-        </TabsContent>
+        {canAccessRecipes && (
+          <TabsContent value="recipes" className="mt-6">
+            <RecipesPage />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

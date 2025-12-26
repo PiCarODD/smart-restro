@@ -15,7 +15,16 @@ module.exports = (sequelize, DataTypes) => {
           as: 'sectionData'
         });
       }
-      // Order association will be added in Phase 7
+      if (models.Order) {
+        Table.hasMany(models.Order, {
+          foreignKey: 'tableId',
+          as: 'orders'
+        });
+        Table.belongsTo(models.Order, {
+          foreignKey: 'currentOrderId',
+          as: 'currentOrder'
+        });
+      }
     }
   }
 

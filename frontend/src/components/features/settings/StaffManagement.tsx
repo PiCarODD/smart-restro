@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Pencil, 
   Trash2, 
@@ -55,8 +55,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAuthStore } from '@/store/authStore';
-import { mockUsers } from '@/mock/data/users';
-import { generateId, formatDate } from '@/lib/utils';
+import { usersApi, getApiError } from '@/lib/api';
+import { formatDate } from '@/lib/utils';
 
 interface StaffMember {
   id: string;
@@ -70,29 +70,23 @@ interface StaffMember {
 }
 
 const roleConfig: Record<string, { label: string; color: string; canCreate: string[] }> = {
-  admin: { label: 'Admin', color: 'bg-red-100 text-red-700', canCreate: ['admin', 'manager', 'server', 'kitchen', 'cashier'] },
-  manager: { label: 'Manager', color: 'bg-blue-100 text-blue-700', canCreate: ['server', 'kitchen', 'cashier'] },
+  tenant_admin: { label: 'Tenant Admin', color: 'bg-red-100 text-red-700', canCreate: ['admin', 'manager', 'cashier', 'waiter', 'server', 'kitchen', 'inventory'] },
+  admin: { label: 'Admin', color: 'bg-red-100 text-red-700', canCreate: ['manager', 'cashier', 'waiter', 'server', 'kitchen', 'inventory'] },
+  manager: { label: 'Manager', color: 'bg-blue-100 text-blue-700', canCreate: ['cashier', 'waiter', 'server', 'kitchen', 'inventory'] },
+  cashier: { label: 'Cashier', color: 'bg-purple-100 text-purple-700', canCreate: [] },
+  waiter: { label: 'Waiter', color: 'bg-green-100 text-green-700', canCreate: [] },
   server: { label: 'Server', color: 'bg-green-100 text-green-700', canCreate: [] },
   kitchen: { label: 'Kitchen', color: 'bg-orange-100 text-orange-700', canCreate: [] },
-  cashier: { label: 'Cashier', color: 'bg-purple-100 text-purple-700', canCreate: [] },
+  cook: { label: 'Cook', color: 'bg-orange-100 text-orange-700', canCreate: [] },
+  inventory: { label: 'Inventory', color: 'bg-teal-100 text-teal-700', canCreate: [] },
 };
 
 export function StaffManagement() {
   const { user: currentUser } = useAuthStore();
   
-  // Mock staff data - in production, this would come from an API/store
-  const [staff, setStaff] = useState<StaffMember[]>(
-    mockUsers.map(u => ({
-      id: u.id,
-      name: u.name,
-      email: u.email,
-      phone: u.phone,
-      role: u.role,
-      pin: u.pin,
-      isActive: u.isActive !== false,
-      createdAt: u.createdAt || new Date(),
-    }))
-  );
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -100,6 +94,35 @@ export function StaffManagement() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [deletingStaff, setDeletingStaff] = useState<StaffMember | null>(null);
+  
+  // Load staff on mount
+  useEffect(() => {
+    loadStaff();
+  }, []);
+
+  const loadStaff = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await usersApi.list();
+      const staffMembers: StaffMember[] = response.users.map(u => ({
+        id: u.id,
+        name: `${u.firstName} ${u.lastName}`,
+        email: u.email,
+        phone: u.phone,
+        role: u.role,
+        pin: u.pinCode,
+        isActive: u.isActive,
+        createdAt: u.createdAt ? new Date(u.createdAt) : new Date(),
+      }));
+      setStaff(staffMembers);
+    } catch (err) {
+      const apiError = getApiError(err);
+      setError(apiError.message || 'Failed to load staff');
+    } finally {
+      setIsLoading(false);
+    }
+  };
   
   const [formData, setFormData] = useState({
     name: '',
@@ -151,49 +174,85 @@ export function StaffManagement() {
     setIsDialogOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.name || !formData.email) return;
-    
-    if (editingStaff) {
-      // Update existing staff
-      setStaff(staff.map(s => 
-        s.id === editingStaff.id 
-          ? { ...s, ...formData }
-          : s
-      ));
-    } else {
-      // Create new staff
-      const newStaff: StaffMember = {
-        id: generateId(),
-        name: formData.name,
-        email: formData.email,
-        phone: formData.phone,
-        role: formData.role,
-        pin: formData.pin,
-        isActive: formData.isActive,
-        createdAt: new Date(),
-      };
-      setStaff([...staff, newStaff]);
+    if (!editingStaff && !formData.password) {
+      setError('Password is required for new staff members');
+      return;
     }
-    setIsDialogOpen(false);
+    
+    setError(null);
+    try {
+      const nameParts = formData.name.trim().split(/\s+/);
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || undefined; // Use undefined instead of empty string
+      
+      if (editingStaff) {
+        // Update existing staff
+        await usersApi.update(editingStaff.id, {
+          email: formData.email,
+          firstName,
+          lastName,
+          phone: formData.phone || undefined,
+          role: formData.role,
+          pinCode: (formData.role === 'waiter' || formData.role === 'server') && formData.pin ? formData.pin : undefined,
+          isActive: formData.isActive,
+        });
+      } else {
+        // Create new staff
+        await usersApi.create({
+          email: formData.email,
+          password: formData.password,
+          firstName,
+          lastName: lastName || firstName, // Use firstName if lastName is not provided
+          phone: formData.phone || undefined,
+          role: formData.role,
+          pinCode: (formData.role === 'waiter' || formData.role === 'server') && formData.pin ? formData.pin : undefined,
+        });
+      }
+      
+      // Reload staff list
+      await loadStaff();
+      setIsDialogOpen(false);
+    } catch (err) {
+      const apiError = getApiError(err);
+      setError(apiError.message || 'Failed to save staff member');
+    }
   };
 
-  const handleDelete = () => {
-    if (deletingStaff) {
-      setStaff(staff.filter(s => s.id !== deletingStaff.id));
+  const handleDelete = async () => {
+    if (!deletingStaff) return;
+    
+    setError(null);
+    try {
+      await usersApi.delete(deletingStaff.id);
+      await loadStaff();
       setIsDeleteDialogOpen(false);
       setDeletingStaff(null);
+    } catch (err) {
+      const apiError = getApiError(err);
+      setError(apiError.message || 'Failed to delete staff member');
     }
   };
 
-  const toggleStaffStatus = (id: string) => {
-    setStaff(staff.map(s => 
-      s.id === id ? { ...s, isActive: !s.isActive } : s
-    ));
+  const toggleStaffStatus = async (id: string) => {
+    const staffMember = staff.find(s => s.id === id);
+    if (!staffMember) return;
+    
+    setError(null);
+    try {
+      await usersApi.update(id, {
+        isActive: !staffMember.isActive,
+      });
+      await loadStaff();
+    } catch (err) {
+      const apiError = getApiError(err);
+      setError(apiError.message || 'Failed to update staff status');
+    }
   };
 
   const generatePin = () => {
-    const pin = Math.floor(1000 + Math.random() * 9000).toString();
+    const pin = Math.floor(100000 + Math.random() * 900000).toString();
     setFormData({ ...formData, pin });
   };
 
@@ -266,8 +325,22 @@ export function StaffManagement() {
         </CardContent>
       </Card>
 
+      {/* Error Message */}
+      {error && (
+        <Card className="border-destructive bg-destructive/10">
+          <CardContent className="p-4">
+            <p className="text-sm text-destructive">{error}</p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Staff Table */}
       <Card>
+        {isLoading ? (
+          <CardContent className="py-12 text-center">
+            <p className="text-muted-foreground">Loading staff...</p>
+          </CardContent>
+        ) : (
         <Table>
           <TableHeader>
             <TableRow>
@@ -347,14 +420,16 @@ export function StaffManagement() {
                 </TableCell>
               </TableRow>
             ))}
+            {filteredStaff.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-12">
+                  <UserPlus className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+                  <p className="text-muted-foreground">No staff members found</p>
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
-
-        {filteredStaff.length === 0 && (
-          <div className="p-12 text-center">
-            <UserPlus className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-            <p className="text-muted-foreground">No staff members found</p>
-          </div>
         )}
       </Card>
 
@@ -419,24 +494,26 @@ export function StaffManagement() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="pin">Waiter App PIN (4 digits)</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="pin"
-                  value={formData.pin}
-                  onChange={(e) => setFormData({ ...formData, pin: e.target.value.replace(/\D/g, '').slice(0, 4) })}
-                  placeholder="e.g., 1234"
-                  maxLength={4}
-                />
-                <Button type="button" variant="outline" onClick={generatePin}>
-                  Generate
-                </Button>
+            {(formData.role === 'waiter' || formData.role === 'server') && (
+              <div className="space-y-2">
+                <Label htmlFor="pin">Waiter App PIN (6 digits)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="pin"
+                    value={formData.pin}
+                    onChange={(e) => setFormData({ ...formData, pin: e.target.value.replace(/\D/g, '').slice(0, 6) })}
+                    placeholder="e.g., 123456"
+                    maxLength={6}
+                  />
+                  <Button type="button" variant="outline" onClick={generatePin}>
+                    Generate
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Used to log into the Waiter App on mobile devices
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Used to log into the Waiter App on mobile devices
-              </p>
-            </div>
+            )}
             {!editingStaff && (
               <div className="space-y-2">
                 <Label htmlFor="password">Initial Password *</Label>

@@ -25,7 +25,7 @@ interface ModifierDialogProps {
     variant: MenuVariant | null,
     modifiers: MenuModifier[],
     notes: string
-  ) => void;
+  ) => void | Promise<void>;
 }
 
 export function ModifierDialog({ open, onOpenChange, item, onAdd }: ModifierDialogProps) {
@@ -51,13 +51,19 @@ export function ModifierDialog({ open, onOpenChange, item, onAdd }: ModifierDial
     });
   };
 
-  const handleAdd = () => {
-    onAdd(item, quantity, selectedVariant, selectedModifiers, notes);
-    // Reset state
-    setQuantity(1);
-    setSelectedVariant(item.variants.length > 0 ? item.variants[0] : null);
-    setSelectedModifiers([]);
-    setNotes('');
+  const handleAdd = async () => {
+    try {
+      await onAdd(item, quantity, selectedVariant, selectedModifiers, notes);
+      // Reset state only if add was successful
+      setQuantity(1);
+      setSelectedVariant(item.variants.length > 0 ? item.variants[0] : null);
+      setSelectedModifiers([]);
+      setNotes('');
+      onOpenChange(false); // Close dialog after successful add
+    } catch (error) {
+      console.error('Failed to add item:', error);
+      // Don't close dialog if there was an error
+    }
   };
 
   return (

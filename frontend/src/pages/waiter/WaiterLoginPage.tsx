@@ -19,11 +19,12 @@ export function WaiterLoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { waiterLogin, isLoading, error } = useAuthStore();
+  const [identifier, setIdentifier] = useState('');
   const [pin, setPin] = useState('');
   const [showShiftDialog, setShowShiftDialog] = useState(false);
 
   const handlePinEntry = (digit: string) => {
-    if (pin.length < 4) {
+    if (pin.length < 6) {
       setPin(prev => prev + digit);
     }
   };
@@ -37,9 +38,12 @@ export function WaiterLoginPage() {
   };
 
   const handleSubmit = async () => {
-    // Validate PIN and login as waiter
-    if (pin.length === 4) {
-      const success = await waiterLogin(pin);
+    // Validate identifier and PIN before login
+    if (!identifier.trim()) {
+      return;
+    }
+    if (pin.length === 6) {
+      const success = await waiterLogin(identifier.trim(), pin);
       if (success) {
         // Show shift start dialog instead of navigating directly
         setShowShiftDialog(true);
@@ -68,18 +72,34 @@ export function WaiterLoginPage() {
           <CardDescription>{t('waiter.enterPin')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Identifier Input */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">{t('waiter.emailOrPhone')}</label>
+            <input
+              type="text"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              placeholder={t('waiter.emailOrPhonePlaceholder')}
+              className="w-full px-3 py-2 border rounded-md"
+              disabled={isLoading}
+            />
+          </div>
+
           {/* PIN Display */}
-          <div className="flex justify-center gap-3">
-            {[0, 1, 2, 3].map((index) => (
-              <div
-                key={index}
-                className={`w-12 h-12 rounded-lg border-2 flex items-center justify-center text-2xl font-bold ${
-                  pin.length > index ? 'border-primary bg-primary/10' : 'border-muted'
-                }`}
-              >
-                {pin.length > index ? '•' : ''}
-              </div>
-            ))}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">{t('waiter.pin')}</label>
+            <div className="flex justify-center gap-3">
+              {[0, 1, 2, 3, 4, 5].map((index) => (
+                <div
+                  key={index}
+                  className={`w-12 h-12 rounded-lg border-2 flex items-center justify-center text-2xl font-bold ${
+                    pin.length > index ? 'border-primary bg-primary/10' : 'border-muted'
+                  }`}
+                >
+                  {pin.length > index ? '•' : ''}
+                </div>
+              ))}
+            </div>
           </div>
 
           {error && (
@@ -109,7 +129,7 @@ export function WaiterLoginPage() {
           <Button 
             className="w-full h-12 text-lg" 
             onClick={handleSubmit}
-            disabled={pin.length !== 4 || isLoading}
+            disabled={!identifier.trim() || pin.length !== 6 || isLoading}
           >
             {isLoading ? (
               <>
@@ -125,7 +145,7 @@ export function WaiterLoginPage() {
           <p className="text-center text-xs text-muted-foreground">
             {t('waiter.demoHint')}
             <br />
-            <span className="text-xs">Demo PIN: 5678</span>
+            <span className="text-xs">Demo: waiter@demo.com / PIN: 123456</span>
           </p>
         </CardContent>
       </Card>

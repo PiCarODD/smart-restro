@@ -22,6 +22,15 @@ export const taxesApi = {
     }
   },
 
+  listFiltered: async (filters?: { activeOnly?: boolean }): Promise<{ taxes: Tax[] }> => {
+    try {
+      const response = await apiClient.post<{ taxes: Tax[] }>('/taxes/list', filters || {});
+      return response.data;
+    } catch (error) {
+      throw getApiError(error);
+    }
+  },
+
   getById: async (id: string): Promise<{ tax: Tax }> => {
     try {
       const response = await apiClient.get<{ tax: Tax }>(`/taxes/${id}`);

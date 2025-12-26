@@ -8,7 +8,6 @@ import {
   Calendar,
   Key,
   LogOut,
-  Camera,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -39,6 +38,8 @@ import {
 import { useAuthStore } from '@/store/authStore';
 import { useNavigate } from 'react-router-dom';
 import { formatDate } from '@/lib/utils';
+import { usersApi } from '@/lib/api/usersApi';
+import { getApiError } from '@/lib/api';
 
 const roleColors: Record<string, string> = {
   admin: 'bg-red-100 text-red-700',
@@ -63,10 +64,10 @@ export function ProfilePage() {
   // Profile edit state
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
-    name: '',
-    email: '',
+    fullName: '',
     phone: '',
   });
+  const [profileError, setProfileError] = useState('');
   
   // Change password state
   const [passwordForm, setPasswordForm] = useState({
@@ -79,13 +80,14 @@ export function ProfilePage() {
   // Initialize form when editing starts
   useEffect(() => {
     if (isEditing && user) {
+      // Combine firstName and lastName into fullName
+      const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || '';
       setEditForm({
-        name: displayName,
-        email: user.email,
+        fullName: fullName,
         phone: user.phone || '',
       });
     }
-  }, [isEditing, user, displayName]);
+  }, [isEditing, user]);
 
   if (!user) {
     return (
@@ -96,15 +98,41 @@ export function ProfilePage() {
   }
 
   const handleSaveProfile = async () => {
+    if (!user) return;
+    
+    setProfileError('');
     setIsSaving(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setIsSaving(false);
-    setIsEditing(false);
-    // In production, this would update the user in the auth store
+    
+    try {
+      const response = await usersApi.update(user.id, {
+        fullName: editForm.fullName.trim(),
+        phone: editForm.phone || undefined,
+      });
+      
+      // Update user in auth store
+      const fullName = `${response.user.firstName || ''} ${response.user.lastName || ''}`.trim();
+      useAuthStore.setState({
+        user: {
+          ...user,
+          firstName: response.user.firstName,
+          lastName: response.user.lastName,
+          phone: response.user.phone,
+          name: fullName,
+        }
+      });
+      
+      setIsEditing(false);
+    } catch (error) {
+      const apiError = getApiError(error);
+      setProfileError(apiError.message || 'Failed to update profile');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleChangePassword = async () => {
+    if (!user) return;
+    
     setPasswordError('');
     
     // Validation
@@ -112,23 +140,33 @@ export function ProfilePage() {
       setPasswordError(t('profile.currentPasswordRequired'));
       return;
     }
-    if (passwordForm.newPassword.length < 6) {
-      setPasswordError(t('profile.passwordTooShort'));
+    if (passwordForm.newPassword.length < 8) {
+      setPasswordError(t('profile.passwordTooShort') || 'Password must be at least 8 characters');
       return;
     }
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setPasswordError(t('profile.passwordMismatch'));
+      setPasswordError(t('profile.passwordMismatch') || 'Passwords do not match');
       return;
     }
     
     setIsSaving(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setIsSaving(false);
-    setIsChangePasswordOpen(false);
-    setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-    // Show success message
-    alert(t('profile.passwordChanged'));
+    
+    try {
+      await usersApi.changePassword(user.id, {
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+      });
+      
+      setIsChangePasswordOpen(false);
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      // You could show a toast notification here instead of alert
+      alert(t('profile.passwordChanged') || 'Password changed successfully');
+    } catch (error) {
+      const apiError = getApiError(error);
+      setPasswordError(apiError.message || 'Failed to change password');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleLogout = () => {
@@ -153,21 +191,12 @@ export function ProfilePage() {
         <CardContent className="pt-6">
           <div className="flex flex-col md:flex-row items-center gap-6">
             {/* Avatar */}
-            <div className="relative">
-              <Avatar className="h-24 w-24">
-                <AvatarImage src={user.avatar} />
-                <AvatarFallback className="text-2xl bg-primary text-primary-foreground">
-                  {getInitials(displayName)}
-                </AvatarFallback>
-              </Avatar>
-              <Button 
-                size="icon" 
-                variant="secondary" 
-                className="absolute -bottom-1 -right-1 h-8 w-8 rounded-full"
-              >
-                <Camera className="h-4 w-4" />
-              </Button>
-            </div>
+            <Avatar className="h-24 w-24">
+              <AvatarImage src={user.avatar} />
+              <AvatarFallback className="text-2xl bg-primary text-primary-foreground">
+                {getInitials(displayName)}
+              </AvatarFallback>
+            </Avatar>
             
             {/* Info */}
             <div className="flex-1 text-center md:text-left">
@@ -220,22 +249,20 @@ export function ProfilePage() {
           {isEditing ? (
             // Edit Mode
             <>
+              {profileError && (
+                <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                  {profileError}
+                </div>
+              )}
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="name">{t('common.name')}</Label>
+                  <Label htmlFor="fullName">{t('profile.fullName') || t('common.name') || 'Full Name'}</Label>
                   <Input
-                    id="name"
-                    value={editForm.name}
-                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">{t('profile.email')}</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={editForm.email}
-                    onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                    id="fullName"
+                    value={editForm.fullName}
+                    onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
+                    required
+                    placeholder={t('profile.enterFullName') || 'Enter your full name'}
                   />
                 </div>
                 <div className="space-y-2">
@@ -246,6 +273,17 @@ export function ProfilePage() {
                     onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
                     placeholder="e.g., +95 9 123 456 789"
                   />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="email">{t('profile.email')}</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={user.email}
+                    disabled
+                    className="bg-muted cursor-not-allowed"
+                  />
+                  <p className="text-xs text-muted-foreground">Email cannot be changed</p>
                 </div>
               </div>
             </>
@@ -296,7 +334,12 @@ export function ProfilePage() {
               variant="outline" 
               onClick={() => {
                 setIsEditing(false);
-                setEditForm({ name: displayName, email: user.email, phone: user.phone || '' });
+                setProfileError('');
+                const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+                setEditForm({ 
+                  fullName: fullName,
+                  phone: user.phone || '' 
+                });
               }}
             >
               {t('common.cancel')}

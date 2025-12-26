@@ -17,6 +17,11 @@ const updateTaxSchema = Joi.object({
   isActive: Joi.boolean().optional()
 });
 
+const listTaxesSchema = Joi.object({
+  activeOnly: Joi.boolean().optional()
+  // restaurantId removed - only from JWT token for security
+});
+
 const validate = (schema) => {
   return (req, res, next) => {
     const { error, value } = schema.validate(req.body, {
@@ -41,6 +46,7 @@ const validate = (schema) => {
 
 module.exports = {
   validateCreate: validate(createTaxSchema),
-  validateUpdate: validate(updateTaxSchema)
+  validateUpdate: validate(updateTaxSchema),
+  validateList: validate(listTaxesSchema)
 };
 

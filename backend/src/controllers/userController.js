@@ -39,6 +39,7 @@ class UserController {
   /**
    * Get user by ID
    * GET /api/users/:id
+   * Users can get their own profile, admins/managers can get any profile
    */
   async getById(req, res, next) {
     try {
@@ -53,6 +54,11 @@ class UserController {
 
       if (!user) {
         throw new NotFoundError('User');
+      }
+
+      // Check if user is trying to get their own profile or if they're an admin/manager
+      if (req.user.id !== id && !['tenant_admin', 'admin', 'manager'].includes(req.user.role)) {
+        throw new AuthorizationError('Not authorized to view this user');
       }
 
       res.json({ user });
@@ -78,7 +84,7 @@ class UserController {
         email,
         passwordHash,
         firstName,
-        lastName,
+        lastName: lastName || firstName, // Use firstName if lastName is not provided
         phone,
         role: role || 'waiter',
         pinCode,
@@ -100,11 +106,12 @@ class UserController {
   /**
    * Update user
    * PUT /api/users/:id
+   * Users can update their own profile (firstName, lastName, phone), admins can update any user
    */
   async update(req, res, next) {
     try {
       const { id } = req.params;
-      const { firstName, lastName, phone, role, pinCode, assignedSections, isActive } = req.body;
+      const { fullName, firstName, lastName, phone, role, pinCode, assignedSections, isActive } = req.body;
       // restaurantId removed - users belong to restaurant from JWT token only
 
       const user = await User.findOne({
@@ -115,21 +122,43 @@ class UserController {
         throw new NotFoundError('User');
       }
 
-      // Don't allow changing own role or status
-      if (req.user.id === id && (role !== undefined || isActive !== undefined)) {
-        throw new ValidationError('Cannot modify your own role or status');
+      // Check authorization: users can only update themselves, admins can update anyone
+      const isUpdatingSelf = req.user.id === id;
+      const isAdmin = ['tenant_admin', 'admin', 'manager'].includes(req.user.role);
+
+      if (!isUpdatingSelf && !isAdmin) {
+        throw new AuthorizationError('Not authorized to update this user');
       }
 
-      await user.update({
-        firstName,
-        lastName,
-        phone,
-        role,
-        // restaurantId removed - users belong to restaurant from JWT token only
-        pinCode,
-        assignedSections,
-        isActive
-      });
+      // Users updating themselves cannot change role, status, pinCode, or assignedSections
+      if (isUpdatingSelf && (role !== undefined || isActive !== undefined || pinCode !== undefined || assignedSections !== undefined)) {
+        throw new ValidationError('Cannot modify your own role, status, PIN, or assigned sections');
+      }
+
+      // Build update data object with only provided fields
+      const updateData = {};
+      
+      // Handle fullName - split into firstName and lastName
+      if (fullName !== undefined) {
+        const nameParts = fullName.trim().split(/\s+/);
+        if (nameParts.length === 0) {
+          throw new ValidationError('Full name cannot be empty');
+        }
+        updateData.firstName = nameParts[0];
+        updateData.lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : nameParts[0]; // Use first name as last name if only one word
+      } else if (firstName !== undefined || lastName !== undefined) {
+        // Backward compatibility: allow firstName/lastName for admin operations
+        if (firstName !== undefined) updateData.firstName = firstName;
+        if (lastName !== undefined) updateData.lastName = lastName || firstName || user.firstName;
+      }
+      
+      if (phone !== undefined) updateData.phone = phone || null;
+      if (role !== undefined && isAdmin) updateData.role = role;
+      if (pinCode !== undefined && isAdmin) updateData.pinCode = pinCode || null;
+      if (assignedSections !== undefined && isAdmin) updateData.assignedSections = assignedSections || [];
+      if (isActive !== undefined && isAdmin) updateData.isActive = isActive;
+
+      await user.update(updateData);
 
       const userData = user.toJSON();
       delete userData.passwordHash;
@@ -178,32 +207,37 @@ class UserController {
   /**
    * Change user password
    * PUT /api/users/:id/password
+   * Users can change their own password (with current password), admins can change any password
    */
   async changePassword(req, res, next) {
     try {
       const { id } = req.params;
       const { currentPassword, newPassword } = req.body;
 
-      const user = await User.findByPk(id);
+      const user = await User.findOne({
+        where: { id, tenantId: req.tenantId }
+      });
 
-      if (!user || user.tenantId !== req.tenantId) {
+      if (!user) {
         throw new NotFoundError('User');
       }
 
+      // Check authorization: users can change their own password, admins can change any password
+      const isChangingSelf = req.user.id === id;
+      const isAdmin = ['tenant_admin', 'admin', 'manager'].includes(req.user.role);
+
+      if (!isChangingSelf && !isAdmin) {
+        throw new AuthorizationError('Not authorized to change this user\'s password');
+      }
+
       // If changing own password, require current password
-      if (req.user.id === id) {
+      if (isChangingSelf) {
         if (!currentPassword) {
           throw new ValidationError('Current password is required');
         }
         const isValid = await authService.comparePassword(currentPassword, user.passwordHash);
         if (!isValid) {
           throw new ValidationError('Current password is incorrect');
-        }
-      } else {
-        // Admin changing someone else's password - no current password needed
-        // But only allow admins/managers
-        if (!['tenant_admin', 'admin', 'manager'].includes(req.user.role)) {
-          throw new AuthorizationError('Only admins can change other users\' passwords');
         }
       }
 

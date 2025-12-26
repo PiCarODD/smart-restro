@@ -97,7 +97,7 @@ export const mockUsers: (User & { password: string })[] = [
     firstName: 'Chef',
     lastName: 'Gordon',
     name: 'Chef Gordon',
-    role: 'kitchen',
+    role: 'cook',
     restaurantId: '1',
     phone: '+95 9 555 555 555',
     isActive: true,

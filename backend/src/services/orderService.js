@@ -54,9 +54,31 @@ class OrderService {
       subtotal += parseFloat(item.modifiersTotal || 0);
     }
 
-    // Get tax rate from restaurant settings or taxes
-    const taxRate = order.restaurant?.settings?.operations?.taxRate || 0;
-    const taxAmount = (subtotal * taxRate) / 100;
+    // Get active taxes for the restaurant
+    const activeTaxes = await Tax.findAll({
+      where: {
+        restaurantId: order.restaurantId,
+        isActive: true
+      }
+    });
+
+    // Calculate tax amount based on active taxes
+    let taxAmount = 0;
+    if (activeTaxes.length > 0) {
+      // For now, apply all active taxes to the subtotal
+      // In the future, we can filter by appliesTo (all, food, beverage, alcohol)
+      for (const tax of activeTaxes) {
+        if (tax.type === 'percentage') {
+          taxAmount += (subtotal * parseFloat(tax.rate)) / 100;
+        } else if (tax.type === 'fixed') {
+          taxAmount += parseFloat(tax.rate);
+        }
+      }
+    } else {
+      // Fallback to restaurant settings if no active taxes
+      const taxRate = order.restaurant?.settings?.operations?.taxRate || 0;
+      taxAmount = (subtotal * taxRate) / 100;
+    }
 
     // Get service charge rate
     const serviceChargeRate = order.restaurant?.settings?.operations?.serviceCharge || 0;

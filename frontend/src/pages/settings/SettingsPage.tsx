@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Settings,
   Building2, 
@@ -55,7 +55,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useTranslation } from 'react-i18next';
-import { useSettingsStore, FeatureToggle, TaxConfig } from '@/store/settingsStore';
+import { useSettingsStore, FeatureToggle, TaxConfig, RestaurantInfo } from '@/store/settingsStore';
 import { cn } from '@/lib/utils';
 import { StaffManagement } from '@/components/features/settings/StaffManagement';
 
@@ -96,7 +96,7 @@ export function SettingsPage() {
     kdsTheme,
     setKdsTheme,
     currentPlan,
-    setCurrentPlan,
+    updateSubscriptionTier,
   } = useSettingsStore();
 
   const [activeTab, setActiveTab] = useState('general');
@@ -106,12 +106,27 @@ export function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
+  // Local state for restaurant info form
+  const [restaurantForm, setRestaurantForm] = useState<RestaurantInfo | null>(null);
+
   // Load data on mount
   useEffect(() => {
     loadRestaurant();
     loadFeatures();
     loadTaxes();
   }, [loadRestaurant, loadFeatures, loadTaxes]);
+
+  // Sync restaurant form state when restaurantInfo loads
+  useEffect(() => {
+    if (restaurantInfo) {
+      setRestaurantForm(restaurantInfo);
+    }
+  }, [restaurantInfo]);
+
+  // Optimized handlers using useCallback - simplified for better performance
+  const handleFieldChange = useCallback((field: keyof RestaurantInfo, value: string) => {
+    setRestaurantForm(prev => prev ? { ...prev, [field]: value } : null);
+  }, []);
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -160,11 +175,11 @@ export function SettingsPage() {
   };
 
   const handleSaveRestaurantInfo = async () => {
-    if (!restaurantInfo) return;
+    if (!restaurantForm) return;
     
     setIsSaving(true);
     try {
-      await updateRestaurantInfo(restaurantInfo);
+      await updateRestaurantInfo(restaurantForm);
     } catch (error) {
       console.error('Failed to save restaurant info:', error);
     } finally {
@@ -312,16 +327,18 @@ export function SettingsPage() {
                   <Label htmlFor="name">Restaurant Name</Label>
                   <Input
                     id="name"
-                    value={restaurantInfo?.name || ''}
-                    onChange={(e) => updateRestaurantInfo({ name: e.target.value })}
+                    value={restaurantForm?.name || ''}
+                    onChange={(e) => handleFieldChange('name', e.target.value)}
+                    disabled={!restaurantForm}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="phone">{t('settings.phone')}</Label>
                   <Input
                     id="phone"
-                    value={restaurantInfo?.phone || ''}
-                    onChange={(e) => updateRestaurantInfo({ phone: e.target.value })}
+                    value={restaurantForm?.phone || ''}
+                    onChange={(e) => handleFieldChange('phone', e.target.value)}
+                    disabled={!restaurantForm}
                   />
                 </div>
                 <div className="space-y-2">
@@ -329,31 +346,35 @@ export function SettingsPage() {
                   <Input
                     id="email"
                     type="email"
-                    value={restaurantInfo?.email || ''}
-                    onChange={(e) => updateRestaurantInfo({ email: e.target.value })}
+                    value={restaurantForm?.email || ''}
+                    onChange={(e) => handleFieldChange('email', e.target.value)}
+                    disabled={!restaurantForm}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="website">Website</Label>
                   <Input
                     id="website"
-                    value={restaurantInfo?.website || ''}
-                    onChange={(e) => updateRestaurantInfo({ website: e.target.value })}
+                    value={restaurantForm?.website || ''}
+                    onChange={(e) => handleFieldChange('website', e.target.value)}
+                    disabled={!restaurantForm}
                   />
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="address">{t('settings.address')}</Label>
                   <Input
                     id="address"
-                    value={restaurantInfo?.address || ''}
-                    onChange={(e) => updateRestaurantInfo({ address: e.target.value })}
+                    value={restaurantForm?.address || ''}
+                    onChange={(e) => handleFieldChange('address', e.target.value)}
+                    disabled={!restaurantForm}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="currency">{t('settings.currency')}</Label>
                   <Select 
-                    value={restaurantInfo?.currency || 'MMK'} 
-                    onValueChange={(v) => updateRestaurantInfo({ currency: v })}
+                    value={restaurantForm?.currency || 'MMK'} 
+                    onValueChange={(v) => handleFieldChange('currency', v)}
+                    disabled={!restaurantForm}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -374,8 +395,9 @@ export function SettingsPage() {
                 <div className="space-y-2">
                   <Label htmlFor="timezone">{t('settings.timezone')}</Label>
                   <Select 
-                    value={restaurantInfo?.timezone || 'Asia/Yangon'} 
-                    onValueChange={(v) => updateRestaurantInfo({ timezone: v })}
+                    value={restaurantForm?.timezone || 'Asia/Yangon'} 
+                    onValueChange={(v) => handleFieldChange('timezone', v)}
+                    disabled={!restaurantForm}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -398,7 +420,7 @@ export function SettingsPage() {
               </div>
             </CardContent>
             <CardFooter>
-              <Button onClick={handleSaveRestaurantInfo} disabled={isSaving || !restaurantInfo}>
+              <Button onClick={handleSaveRestaurantInfo} disabled={isSaving || !restaurantForm}>
                 <Save className="h-4 w-4 mr-2" />
                 {isSaving ? t('common.loading') : t('settings.saveChanges')}
               </Button>
@@ -554,9 +576,9 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              {/* Demo Mode Notice */}
-              <div className="text-center text-sm text-muted-foreground">
-                <p>🎮 <strong>Demo Mode:</strong> Click on any plan to simulate switching plans and see feature access changes.</p>
+              {/* Switch Subscription Tier */}
+              <div className="text-center text-sm text-muted-foreground mb-4">
+                <p><strong>Switch Subscription Tier:</strong> Change your subscription plan (for development/testing)</p>
               </div>
               <div className="grid gap-2 md:grid-cols-3">
                 {(['starter', 'professional', 'enterprise'] as const).map((plan) => (
@@ -564,10 +586,19 @@ export function SettingsPage() {
                     key={plan}
                     variant={currentPlan === plan ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setCurrentPlan(plan)}
+                    onClick={async () => {
+                      if (currentPlan !== plan) {
+                        try {
+                          await updateSubscriptionTier(plan);
+                        } catch (error) {
+                          console.error('Failed to update subscription tier:', error);
+                        }
+                      }
+                    }}
+                    disabled={currentPlan === plan}
                   >
                     {currentPlan === plan && <Check className="h-4 w-4 mr-1" />}
-                    Try {plan.charAt(0).toUpperCase() + plan.slice(1)}
+                    Switch to {plan.charAt(0).toUpperCase() + plan.slice(1)}
                   </Button>
                 ))}
               </div>

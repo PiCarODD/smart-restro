@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Table, TableStatus } from '@/types';
 import { tablesApi, getApiError } from '@/lib/api';
+import { subscribeToTables } from '@/lib/socket';
 
 export interface Section {
   id: string;
@@ -385,3 +386,22 @@ export const useTableStore = create<TableStore>((set, get) => ({
     set({ error: null });
   },
 }));
+
+/**
+ * Initialize socket subscriptions for table events
+ * This should be called after socket is initialized (e.g., in DashboardLayout)
+ */
+export function initTableSocketSubscriptions() {
+  const unsubscribe = subscribeToTables({
+    'table:status_changed': () => {
+      // Reload tables when table status changes
+      useTableStore.getState().loadTables();
+    },
+    'tables:updated': () => {
+      // Reload tables when tables are updated
+      useTableStore.getState().loadTables();
+    },
+  });
+
+  return unsubscribe;
+}

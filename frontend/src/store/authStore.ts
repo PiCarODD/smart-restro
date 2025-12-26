@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { User, LoginCredentials } from '@/types';
 import { authApi, getApiError } from '@/lib/api';
+import { disconnectSocket } from '@/lib/socket';
 
 interface AuthStore {
   user: User | null;
@@ -10,7 +11,7 @@ interface AuthStore {
   error: string | null;
   
   login: (credentials: LoginCredentials) => Promise<boolean>;
-  waiterLogin: (pin: string, restaurantId?: string) => Promise<boolean>;
+  waiterLogin: (identifier: string, pin: string) => Promise<boolean>;
   logout: () => Promise<void>;
   clearError: () => void;
   checkAuth: () => Promise<void>;
@@ -18,7 +19,7 @@ interface AuthStore {
 
 export const useAuthStore = create<AuthStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
       isAuthenticated: false,
       isLoading: false,
@@ -31,7 +32,7 @@ export const useAuthStore = create<AuthStore>()(
           const response = await authApi.login({
             email: credentials.email,
             password: credentials.password,
-            rememberMe: true,
+            rememberMe: credentials.rememberMe || false,
           });
           
           // Store token
@@ -72,13 +73,14 @@ export const useAuthStore = create<AuthStore>()(
         }
       },
 
-      waiterLogin: async (pin: string, restaurantId?: string) => {
+      waiterLogin: async (identifier: string, pin: string) => {
         set({ isLoading: true, error: null });
         
         try {
           const response = await authApi.loginWithPin({
+            identifier,
             pin,
-            restaurantId,
+            // restaurantId removed - backend extracts from user record for security
           });
           
           // Store token
@@ -125,6 +127,14 @@ export const useAuthStore = create<AuthStore>()(
         } catch (error) {
           console.error('Logout error:', error);
         } finally {
+          // Disconnect socket on logout
+          disconnectSocket();
+          
+          // Clear remembered credentials on logout (user must explicitly check remember me again)
+          // Note: We keep the credentials in localStorage if remember_me was true,
+          // so they persist across browser sessions. Only clear on explicit logout if desired.
+          // For now, we'll keep them unless the user unchecks "remember me"
+          
           // Always clear state even if API call fails
           set({ 
             user: null, 
@@ -139,9 +149,20 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       checkAuth: async () => {
+        // Don't check if already authenticated and user exists
+        const currentState = get();
+        if (currentState.isAuthenticated && currentState.user) {
+          return;
+        }
+
         const token = localStorage.getItem('auth_token');
         if (!token) {
-          set({ isAuthenticated: false, user: null });
+          set({ isAuthenticated: false, user: null, isLoading: false });
+          return;
+        }
+
+        // Don't check if already loading to prevent multiple simultaneous calls
+        if (currentState.isLoading) {
           return;
         }
 

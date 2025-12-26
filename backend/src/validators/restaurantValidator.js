@@ -12,7 +12,9 @@ const updateRestaurantSchema = Joi.object({
   country: Joi.string().optional().max(100),
   phone: Joi.string().optional().max(50),
   email: Joi.string().optional().email(),
-  website: Joi.string().optional().uri(),
+  website: Joi.string().optional().uri().allow(''),
+  timezone: Joi.string().optional(),
+  currency: Joi.string().optional().length(3),
   isActive: Joi.boolean().optional()
 });
 

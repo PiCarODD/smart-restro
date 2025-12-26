@@ -2,10 +2,13 @@ const express = require('express');
 const router = express.Router();
 const recipeController = require('../controllers/recipeController');
 const authMiddleware = require('../middleware/auth');
+const subscriptionCheck = require('../middleware/subscriptionCheck');
 const inventoryValidator = require('../validators/inventoryValidator');
 
-// All routes require authentication
+// All routes require authentication and professional+ subscription (recipes feature)
 router.use(authMiddleware.authenticate);
+// Note: Recipes require auto_stock_deduction which is professional+ tier
+router.use(subscriptionCheck.requireFeature('auto_stock_deduction'));
 
 // Recipes - require admin/manager for create/update/delete
 router.get('/:menuItemId', recipeController.getRecipe);

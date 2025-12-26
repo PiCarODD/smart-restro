@@ -1,35 +1,55 @@
-import { useState, useEffect } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useAuthStore } from '@/store/authStore';
 import { useRestaurantStore } from '@/store/restaurantStore';
+import { initSocket, disconnectSocket } from '@/lib/socket';
+import { initOrderSocketSubscriptions } from '@/store/orderStore';
+import { initTableSocketSubscriptions } from '@/store/tableStore';
 
 export function DashboardLayout() {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
   const { loadRestaurant } = useRestaurantStore();
-  const navigate = useNavigate();
+  const hasLoadedRestaurant = useRef(false);
 
-  const { checkAuth } = useAuthStore();
-
+  // Load restaurant data once when authenticated
   useEffect(() => {
-    // Check authentication status on mount
-    checkAuth().then(() => {
-      if (!isAuthenticated) {
-        navigate('/login');
-      } else {
-        loadRestaurant();
-      }
-    });
-  }, [navigate, loadRestaurant, checkAuth]);
-
-  useEffect(() => {
-    if (!isAuthenticated) {
-      navigate('/login');
+    if (isAuthenticated && user && !hasLoadedRestaurant.current) {
+      hasLoadedRestaurant.current = true;
+      loadRestaurant();
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, user, loadRestaurant]);
+
+  // Track socket subscriptions cleanup functions
+  const unsubscribeRef = useRef<(() => void)[]>([]);
+
+  // Initialize Socket.IO connection and subscriptions when user is authenticated
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      // Initialize socket connection
+      initSocket();
+      
+      // Initialize socket subscriptions
+      // Note: Subscriptions will be active once socket connects
+      // getSocket() in subscribeToOrders/Table will return the socket instance
+      const orderUnsubscribe = initOrderSocketSubscriptions();
+      const tableUnsubscribe = initTableSocketSubscriptions();
+      
+      unsubscribeRef.current = [orderUnsubscribe, tableUnsubscribe];
+      
+      // Cleanup: disconnect socket and unsubscribe when component unmounts or user logs out
+      return () => {
+        // Unsubscribe from all socket events
+        unsubscribeRef.current.forEach(unsubscribe => unsubscribe());
+        unsubscribeRef.current = [];
+        // Disconnect socket
+        disconnectSocket();
+      };
+    }
+  }, [isAuthenticated, user]);
 
   if (!isAuthenticated) {
     return null;

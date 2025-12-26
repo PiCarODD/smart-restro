@@ -28,7 +28,8 @@ const registerSchema = Joi.object({
 
 const loginSchema = Joi.object({
   email: Joi.string().required().email(),
-  password: Joi.string().required()
+  password: Joi.string().required(),
+  rememberMe: Joi.boolean().optional()
 });
 
 const pinLoginSchema = Joi.object({

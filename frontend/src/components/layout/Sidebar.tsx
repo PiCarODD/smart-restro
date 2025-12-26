@@ -28,6 +28,8 @@ import {
 import { useAuthStore } from '@/store/authStore';
 import { useRestaurantStore } from '@/store/restaurantStore';
 import { useOrderStore } from '@/store/orderStore';
+import { useSettingsStore } from '@/store/settingsStore';
+import { User } from '@/types';
 
 interface SidebarProps {
   isCollapsed: boolean;
@@ -39,6 +41,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
   const { logout, user } = useAuthStore();
   const { restaurant } = useRestaurantStore();
   const { orders } = useOrderStore();
+  const { currentPlan } = useSettingsStore();
   const { t } = useTranslation();
 
   const navigation = [
@@ -46,22 +49,26 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
       title: t('nav.dashboard'),
       href: '/dashboard',
       icon: LayoutDashboard,
+      roles: ['tenant_admin', 'admin', 'manager', 'waiter', 'server', 'cashier', 'cook', 'inventory'] as User['role'][],
     },
     {
       title: t('nav.orders'),
       href: '/orders',
       icon: ShoppingCart,
       badgeKey: 'activeOrders',
+      roles: ['tenant_admin', 'admin', 'manager', 'waiter', 'server', 'cashier'] as User['role'][],
     },
     {
       title: t('nav.tables'),
       href: '/tables',
       icon: Users,
+      roles: ['tenant_admin', 'admin', 'manager', 'waiter', 'server'] as User['role'][],
     },
     {
       title: t('nav.menu'),
       href: '/menu',
       icon: UtensilsCrossed,
+      roles: ['tenant_admin', 'admin', 'manager', 'waiter', 'server', 'cashier', 'cook'] as User['role'][],
     },
     {
       title: t('nav.kds'),
@@ -69,32 +76,63 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
       icon: ChefHat,
       feature: 'kds',
       badgeKey: 'kdsOrders',
+      roles: ['tenant_admin', 'admin', 'manager', 'cook'] as User['role'][],
     },
     {
       title: t('nav.inventory'),
       href: '/inventory',
       icon: Package,
       feature: 'inventory',
+      roles: ['tenant_admin', 'admin', 'manager', 'inventory'] as User['role'][],
     },
     {
       title: t('nav.reports'),
       href: '/reports',
       icon: BarChart3,
+      roles: ['tenant_admin', 'admin', 'manager'] as User['role'][],
     },
     {
       title: t('nav.settings'),
       href: '/settings',
       icon: Settings,
+      roles: ['tenant_admin', 'admin', 'manager'] as User['role'][],
     },
   ];
 
   const isFeatureEnabled = (feature?: string) => {
     if (!feature || !restaurant) return true;
+    
+    // Check subscription tier requirements
+    const featureTierMap: Record<string, 'professional' | 'enterprise'> = {
+      kds: 'professional',
+      waiter_app: 'professional',
+      inventory: 'professional',
+      multi_location: 'enterprise',
+    };
+    
+    const requiredTier = featureTierMap[feature];
+    if (requiredTier) {
+      const tierOrder = ['starter', 'professional', 'enterprise'];
+      const currentTierIndex = tierOrder.indexOf(currentPlan);
+      const requiredTierIndex = tierOrder.indexOf(requiredTier);
+      if (currentTierIndex < requiredTierIndex) {
+        return false; // Subscription tier doesn't support this feature
+      }
+    }
+    
+    // Check feature toggle setting
     const featureSettings = restaurant.settings.features[feature as keyof typeof restaurant.settings.features];
     return featureSettings?.enabled ?? true;
   };
 
-  const filteredNavigation = navigation.filter(item => isFeatureEnabled(item.feature));
+  const hasRoleAccess = (roles?: User['role'][]) => {
+    if (!roles || !user) return true;
+    return roles.includes(user.role);
+  };
+
+  const filteredNavigation = navigation.filter(item => 
+    isFeatureEnabled(item.feature) && hasRoleAccess(item.roles)
+  );
 
   // Calculate badge counts
   const activeOrders = orders.filter(o => !['completed', 'cancelled'].includes(o.status)).length;
@@ -117,12 +155,17 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
       {/* Logo */}
       <div className="flex h-16 items-center justify-center border-b px-4">
         {isCollapsed ? (
-          <span className="text-2xl">🍽️</span>
+          <img 
+            src="/logos/SMART-restaurant.png" 
+            alt="SmartResto Logo" 
+            className="h-24 w-auto object-contain"
+          />
         ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">🍽️</span>
-            <span className="font-bold text-lg">SmartResto</span>
-          </div>
+          <img 
+            src="/logos/SMART-restaurant.gif" 
+            alt="SmartResto Logo" 
+            className="h-[120px] w-[160px] object-contain"
+          />
         )}
       </div>
 

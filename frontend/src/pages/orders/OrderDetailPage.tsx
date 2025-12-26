@@ -198,10 +198,12 @@ export function OrderDetailPage() {
                   <span>-{formatCurrency(order.discount)}</span>
                 </div>
               )}
-              <div className="flex justify-between text-muted-foreground">
-                <span>Tax (8%)</span>
-                <span>{formatCurrency(order.tax)}</span>
-              </div>
+              {order.tax > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Tax</span>
+                  <span>{formatCurrency(order.tax)}</span>
+                </div>
+              )}
               <Separator />
               <div className="flex justify-between font-bold text-lg">
                 <span>Total</span>

@@ -23,11 +23,11 @@ export type UserRole =
   | 'tenant_admin'  // Tenant owner - manages their restaurants
   | 'admin'         // Restaurant admin
   | 'manager'       // Restaurant manager
-  | 'cashier' 
-  | 'waiter' 
-  | 'kitchen' 
-  | 'server' 
-  | 'inventory';
+  | 'cashier'       // Cashier - handles payments
+  | 'waiter'        // Waiter - service staff
+  | 'server'        // Server - service staff
+  | 'cook'          // Cook - kitchen staff
+  | 'inventory';    // Inventory manager
 
 // Check if user is SaaS-level admin
 export const isSaasAdmin = (role: UserRole): boolean => role === 'super_admin';
@@ -56,6 +56,7 @@ export type SubscriptionTier = 'starter' | 'professional' | 'enterprise';
 export type SubscriptionStatus = 'active' | 'past_due' | 'cancelled' | 'trial';
 
 export interface LoginCredentials {
+  rememberMe?: boolean;
   email: string;
   password: string;
 }

@@ -4,13 +4,41 @@ const { NotFoundError } = require('../utils/errors');
 class TaxController {
   /**
    * List taxes for restaurant
-   * GET /api/taxes
+   * GET /api/taxes (simple list, no filters)
+   * POST /api/taxes/list (with filters in body)
    */
   async list(req, res, next) {
     try {
       const where = {
         restaurantId: req.restaurantId // Only from JWT token, never from client
       };
+
+      const taxes = await Tax.findAll({
+        where,
+        order: [['created_at', 'DESC']]
+      });
+
+      res.json({ taxes });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * List taxes with filters (POST to prevent CSRF)
+   * POST /api/taxes/list
+   */
+  async listFiltered(req, res, next) {
+    try {
+      const { activeOnly } = req.body;
+      const where = {
+        restaurantId: req.restaurantId // Only from JWT token, never from client
+      };
+
+      // Filter by isActive if activeOnly is provided in request body
+      if (activeOnly === true || activeOnly === 'true') {
+        where.isActive = true;
+      }
 
       const taxes = await Tax.findAll({
         where,

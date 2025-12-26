@@ -31,6 +31,12 @@ module.exports = (sequelize, DataTypes) => {
           as: 'table'
         });
       }
+      if (models.Payment) {
+        Order.hasMany(models.Payment, {
+          foreignKey: 'orderId',
+          as: 'payments'
+        });
+      }
     }
   }
 
