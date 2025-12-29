@@ -10,8 +10,8 @@ router.use(authMiddleware.authenticate);
 
 // Orders routes
 router.get('/', orderController.list);
-router.get('/:id', orderController.getById);
 router.post('/', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'server', 'cashier'), orderValidator.validateCreate, orderController.create);
+router.get('/:id', orderController.getById);
 router.put('/:id', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'cashier'), orderValidator.validateUpdate, orderController.update);
 router.put('/:id/status', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'cashier'), orderValidator.validateUpdateStatus, orderController.updateStatus);
 router.delete('/:id', authMiddleware.authorize('tenant_admin', 'admin', 'manager'), orderController.cancel);

@@ -32,7 +32,6 @@ import { useOrderStore } from '@/store/orderStore';
 import { useTableStore } from '@/store/tableStore';
 import { OrderStatus, OrderItemStatus } from '@/types';
 import { formatCurrency } from '@/lib/utils';
-import { CheckoutDialog } from '@/components/features/orders/CheckoutDialog';
 
 const statusConfig: Record<OrderStatus, { label: string; color: string; bgColor: string }> = {
   pending: { label: 'Pending', color: 'text-gray-700', bgColor: 'bg-gray-100' },
@@ -56,10 +55,9 @@ const itemStatusConfig: Record<OrderItemStatus, { label: string; color: string }
 export function OrderDetailPage() {
   const { orderId } = useParams<{ orderId: string }>();
   const navigate = useNavigate();
-  const { orders, loadOrders, updateOrderStatus, completeOrder, cancelOrder } = useOrderStore();
+  const { orders, loadOrders, updateOrderStatus, cancelOrder } = useOrderStore();
   const { updateTableStatus } = useTableStore();
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
-  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
   useEffect(() => {
     loadOrders();
@@ -78,7 +76,7 @@ export function OrderDetailPage() {
     );
   }
 
-  const status = statusConfig[order.status];
+  const status = statusConfig[order.status] || { label: order.status || 'Unknown', color: 'text-gray-700', bgColor: 'bg-gray-100' };
 
   const handleStatusUpdate = (newStatus: OrderStatus) => {
     updateOrderStatus(order.id, newStatus);
@@ -91,13 +89,6 @@ export function OrderDetailPage() {
     setIsCancelDialogOpen(false);
   };
 
-  const handleComplete = () => {
-    completeOrder(order.id);
-    // Free up the table
-    updateTableStatus(order.tableId, 'cleaning');
-    setIsCheckoutOpen(false);
-    navigate('/orders');
-  };
 
   const getNextStatus = (): OrderStatus | null => {
     const flow: OrderStatus[] = ['pending', 'confirmed', 'preparing', 'ready', 'served'];
@@ -136,9 +127,9 @@ export function OrderDetailPage() {
                 Add Items
               </Button>
               {order.status === 'served' && (
-                <Button onClick={() => setIsCheckoutOpen(true)}>
+                <Button onClick={() => navigate(`/tables/${order.tableId}/orders`)}>
                   <Receipt className="mr-2 h-4 w-4" />
-                  Checkout
+                  View Orders
                 </Button>
               )}
             </>
@@ -155,16 +146,18 @@ export function OrderDetailPage() {
           <CardContent>
             <div className="space-y-4">
               {order.items.map(item => {
-                const itemStatus = itemStatusConfig[item.status];
+                const itemStatus = itemStatusConfig[item.status] || { label: item.status || 'Unknown', color: 'text-gray-600' };
                 return (
                   <div key={item.id} className="flex items-start justify-between p-3 rounded-lg bg-muted/50">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{item.quantity}x</span>
                         <span className="font-medium">{item.name}</span>
-                        <span className={`text-xs ${itemStatus.color}`}>
-                          • {itemStatus.label}
-                        </span>
+                        {itemStatus && (
+                          <span className={`text-xs ${itemStatus.color}`}>
+                            • {itemStatus.label}
+                          </span>
+                        )}
                       </div>
                       {item.variant && (
                         <p className="text-sm text-muted-foreground ml-6">{item.variant}</p>
@@ -270,24 +263,20 @@ export function OrderDetailPage() {
                     {nextStatus === 'served' && 'Mark Served'}
                   </Button>
                 )}
-                {order.status === 'served' && (
-                  <Button className="w-full" onClick={() => setIsCheckoutOpen(true)}>
-                    <Receipt className="mr-2 h-4 w-4" />
-                    Process Payment
-                  </Button>
-                )}
                 <Button variant="outline" className="w-full">
                   <Printer className="mr-2 h-4 w-4" />
                   Print Receipt
                 </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full text-destructive hover:text-destructive"
-                  onClick={() => setIsCancelDialogOpen(true)}
-                >
-                  <XCircle className="mr-2 h-4 w-4" />
-                  Cancel Order
-                </Button>
+                {order.status !== 'served' && (
+                  <Button 
+                    variant="outline" 
+                    className="w-full text-destructive hover:text-destructive"
+                    onClick={() => setIsCancelDialogOpen(true)}
+                  >
+                    <XCircle className="mr-2 h-4 w-4" />
+                    Cancel Order
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}
@@ -357,13 +346,6 @@ export function OrderDetailPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Checkout Dialog */}
-      <CheckoutDialog
-        open={isCheckoutOpen}
-        onOpenChange={setIsCheckoutOpen}
-        order={order}
-        onComplete={handleComplete}
-      />
     </div>
   );
 }

@@ -93,6 +93,7 @@ function mapApiRecipeIngredientToRecipeIngredient(apiRi: ApiRecipeIngredient): R
     quantity: apiRi.quantity,
     unit: apiRi.unit,
     cost: apiRi.ingredient.unitCost * apiRi.quantity, // Calculate cost
+    variantName: apiRi.variantName || undefined,
   };
 }
 
@@ -140,6 +141,7 @@ function mapRecipeIngredientToApiFormat(ri: RecipeIngredient): {
     ingredientId: ri.ingredientId,
     quantity: ri.quantity,
     unit: ri.unit,
+    variantName: ri.variantName,
   };
 }
 

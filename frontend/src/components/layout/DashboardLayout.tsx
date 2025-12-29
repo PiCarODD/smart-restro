@@ -25,10 +25,20 @@ export function DashboardLayout() {
 
   // Track socket subscriptions cleanup functions
   const unsubscribeRef = useRef<(() => void)[]>([]);
+  const socketInitializedRef = useRef(false);
+  const userIdRef = useRef<string | null>(null);
+  const isMountedRef = useRef(true);
 
   // Initialize Socket.IO connection and subscriptions when user is authenticated
   useEffect(() => {
-    if (isAuthenticated && user) {
+    isMountedRef.current = true;
+    const currentUserId = user?.id || null;
+    
+    // Only initialize if authenticated and user exists, and we haven't initialized for this user
+    if (isAuthenticated && user && currentUserId && currentUserId !== userIdRef.current) {
+      userIdRef.current = currentUserId;
+      socketInitializedRef.current = true;
+      
       // Initialize socket connection
       initSocket();
       
@@ -39,17 +49,42 @@ export function DashboardLayout() {
       const tableUnsubscribe = initTableSocketSubscriptions();
       
       unsubscribeRef.current = [orderUnsubscribe, tableUnsubscribe];
-      
-      // Cleanup: disconnect socket and unsubscribe when component unmounts or user logs out
-      return () => {
-        // Unsubscribe from all socket events
-        unsubscribeRef.current.forEach(unsubscribe => unsubscribe());
-        unsubscribeRef.current = [];
-        // Disconnect socket
-        disconnectSocket();
-      };
     }
-  }, [isAuthenticated, user]);
+    
+    // Cleanup: only disconnect if user actually changed or component unmounts
+    return () => {
+      isMountedRef.current = false;
+      const cleanupUserId = user?.id || null;
+      
+      // Only cleanup if:
+      // 1. User is no longer authenticated, OR
+      // 2. User ID changed (different user logged in)
+      // Don't cleanup on React Strict Mode double-invoke (when user is still authenticated and same ID)
+      if (!isAuthenticated || (cleanupUserId && cleanupUserId !== userIdRef.current)) {
+        // Unsubscribe from all socket events
+        unsubscribeRef.current.forEach(unsubscribe => {
+          try {
+            unsubscribe();
+          } catch (error) {
+            console.error('Error unsubscribing from socket:', error);
+          }
+        });
+        unsubscribeRef.current = [];
+        
+        // Only disconnect socket if user is not authenticated
+        // Don't disconnect on React Strict Mode double-invoke when user is still authenticated
+        if (!isAuthenticated) {
+          disconnectSocket();
+          socketInitializedRef.current = false;
+          userIdRef.current = null;
+        } else if (cleanupUserId && cleanupUserId !== userIdRef.current) {
+          // User changed, disconnect old socket
+          disconnectSocket();
+          socketInitializedRef.current = false;
+        }
+      }
+    };
+  }, [isAuthenticated, user?.id]); // Only depend on user.id, not the whole user object
 
   if (!isAuthenticated) {
     return null;

@@ -46,8 +46,6 @@ export function initSocket(): Socket | null {
   });
 
   socket.on('connect', () => {
-    console.log('Socket.IO connected:', socket?.id);
-    
     // Join restaurant room
     if (user.restaurantId && socket) {
       socket.emit('join:restaurant', user.restaurantId);
@@ -64,16 +62,15 @@ export function initSocket(): Socket | null {
     }
   });
 
-  socket.on('disconnect', (reason: string) => {
-    console.log('Socket.IO disconnected:', reason);
+  socket.on('disconnect', () => {
+    // Handle disconnect
   });
 
   socket.on('connect_error', (error: Error) => {
     console.error('Socket.IO connection error:', error);
   });
 
-  socket.on('reconnect', (attemptNumber: number) => {
-    console.log('Socket.IO reconnected after', attemptNumber, 'attempts');
+  socket.on('reconnect', () => {
     // Rejoin rooms after reconnection
     if (user.restaurantId) {
       socket?.emit('join:restaurant', user.restaurantId);
@@ -104,8 +101,15 @@ export function getSocket(): Socket | null {
  */
 export function disconnectSocket(): void {
   if (socket) {
-    socket.disconnect();
-    socket = null;
+    try {
+      if (socket.connected) {
+        socket.disconnect();
+      }
+      socket = null;
+    } catch (error) {
+      console.error('Error disconnecting socket:', error);
+      socket = null;
+    }
   }
 }
 

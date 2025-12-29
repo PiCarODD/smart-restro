@@ -31,11 +31,35 @@ class InventoryService {
       const deductions = [];
 
       for (const orderItem of order.orderItems) {
-        // Get recipe for this menu item
-        const recipes = await Recipe.findAll({
-          where: { menuItemId: orderItem.menuItemId },
+        // Build recipe query - prioritize variant-specific recipes, fallback to base recipes
+        const recipeWhere = {
+          menuItemId: orderItem.menuItemId,
+        };
+        
+        // If order item has a variant, try to get variant-specific recipes first
+        // If no variant-specific recipes exist, fall back to base recipes (variantName is null)
+        if (orderItem.variantName) {
+          recipeWhere.variantName = orderItem.variantName;
+        } else {
+          recipeWhere.variantName = null;
+        }
+        
+        // Get recipe for this menu item (variant-specific or base)
+        let recipes = await Recipe.findAll({
+          where: recipeWhere,
           include: [{ model: Ingredient, as: 'ingredient' }]
         });
+        
+        // If no variant-specific recipes found and order item has variant, fall back to base recipes
+        if (recipes.length === 0 && orderItem.variantName) {
+          recipes = await Recipe.findAll({
+            where: { 
+              menuItemId: orderItem.menuItemId,
+              variantName: null
+            },
+            include: [{ model: Ingredient, as: 'ingredient' }]
+          });
+        }
 
         for (const recipe of recipes) {
           // Calculate quantity needed (quantity * orderItem.quantity * waste factor)

@@ -45,6 +45,7 @@ export function RecipeBuilder({ open, onOpenChange, menuItem }: RecipeBuilderPro
 
   const [recipeIngredients, setRecipeIngredients] = useState<RecipeIngredient[]>([]);
   const [selectedIngredient, setSelectedIngredient] = useState<string>('');
+  const [selectedVariant, setSelectedVariant] = useState<string>('base'); // 'base' for base recipe, or variant name
 
   useEffect(() => {
     loadIngredients();
@@ -52,17 +53,29 @@ export function RecipeBuilder({ open, onOpenChange, menuItem }: RecipeBuilderPro
 
   useEffect(() => {
     if (open && menuItem) {
+      setSelectedVariant('base'); // Reset to base when opening
+      setRecipeIngredients([]);
+    }
+  }, [open, menuItem]);
+
+  // Load recipe when variant changes
+  useEffect(() => {
+    if (open && menuItem) {
       const loadRecipe = async () => {
         const existingRecipe = await getRecipeByMenuItemId(menuItem.id);
         if (existingRecipe && existingRecipe.ingredients) {
-          setRecipeIngredients(existingRecipe.ingredients);
+          // Filter ingredients by selected variant
+          const variantIngredients = selectedVariant === 'base'
+            ? existingRecipe.ingredients.filter(ri => !ri.variantName || ri.variantName === null)
+            : existingRecipe.ingredients.filter(ri => ri.variantName === selectedVariant);
+          setRecipeIngredients(variantIngredients);
         } else {
           setRecipeIngredients([]);
         }
       };
       loadRecipe();
     }
-  }, [open, menuItem, getRecipeByMenuItemId]);
+  }, [open, menuItem, selectedVariant, getRecipeByMenuItemId]);
 
   const addIngredient = () => {
     if (!selectedIngredient) return;
@@ -82,6 +95,7 @@ export function RecipeBuilder({ open, onOpenChange, menuItem }: RecipeBuilderPro
       quantity: 0.1,
       unit: ingredient.unit,
       cost: ingredient.unitCost * 0.1,
+      variantName: selectedVariant === 'base' ? undefined : selectedVariant,
     };
 
     setRecipeIngredients([...recipeIngredients, newRecipeIngredient]);
@@ -108,9 +122,28 @@ export function RecipeBuilder({ open, onOpenChange, menuItem }: RecipeBuilderPro
     setRecipeIngredients(prev => prev.filter(ri => ri.ingredientId !== ingredientId));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!menuItem) return;
-    saveRecipe(menuItem.id, recipeIngredients);
+    
+    // Load existing recipe to merge with other variants
+    const existingRecipe = await getRecipeByMenuItemId(menuItem.id);
+    let allIngredients: RecipeIngredient[] = [];
+    
+    if (existingRecipe && existingRecipe.ingredients) {
+      // Keep ingredients from other variants
+      const otherVariantsIngredients = existingRecipe.ingredients.filter(ri => {
+        if (selectedVariant === 'base') {
+          return ri.variantName && ri.variantName !== null;
+        } else {
+          return !ri.variantName || ri.variantName !== selectedVariant;
+        }
+      });
+      allIngredients = [...otherVariantsIngredients, ...recipeIngredients];
+    } else {
+      allIngredients = recipeIngredients;
+    }
+    
+    saveRecipe(menuItem.id, allIngredients);
     onOpenChange(false);
   };
 
@@ -136,6 +169,31 @@ export function RecipeBuilder({ open, onOpenChange, menuItem }: RecipeBuilderPro
             {menuItem.name} - Define ingredients for automatic stock deduction
           </DialogDescription>
         </DialogHeader>
+
+        {/* Variant Selection */}
+        {menuItem.variants && menuItem.variants.length > 0 && (
+          <div className="space-y-2 py-2 border-b">
+            <Label>Recipe for Variant</Label>
+            <Select value={selectedVariant} onValueChange={setSelectedVariant}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select variant" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="base">Base Recipe (All Variants)</SelectItem>
+                {menuItem.variants.map(variant => (
+                  <SelectItem key={variant.name} value={variant.name}>
+                    {variant.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {selectedVariant === 'base' 
+                ? 'This recipe will be used for all variants if no variant-specific recipe exists.'
+                : `This recipe is specific to "${selectedVariant}" variant.`}
+            </p>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-4 py-4">
           {/* Left: Recipe Ingredients */}

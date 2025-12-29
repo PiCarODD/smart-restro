@@ -9,6 +9,7 @@ import { RoleGuard } from '@/components/auth/RoleGuard';
 import { DashboardPage } from '@/pages/dashboard/DashboardPage';
 import { MenuPage } from '@/pages/menu/MenuPage';
 import { TablesPage } from '@/pages/tables/TablesPage';
+import { TableOrdersPage } from '@/pages/tables/TableOrdersPage';
 import { OrdersPage } from '@/pages/orders/OrdersPage';
 import { OrderDetailPage } from '@/pages/orders/OrderDetailPage';
 import { POSPage } from '@/pages/orders/POSPage';
@@ -78,6 +79,14 @@ export const router = createBrowserRouter([
         element: (
           <RoleGuard allowedRoles={['tenant_admin', 'admin', 'manager', 'waiter', 'server']}>
             <TablesPage />
+          </RoleGuard>
+        ),
+      },
+      {
+        path: 'tables/:tableId/orders',
+        element: (
+          <RoleGuard allowedRoles={['tenant_admin', 'admin', 'manager', 'waiter', 'server', 'cashier']}>
+            <TableOrdersPage />
           </RoleGuard>
         ),
       },

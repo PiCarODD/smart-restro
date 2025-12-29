@@ -35,12 +35,13 @@ class OrderService {
   /**
    * Calculate order totals
    */
-  async calculateOrderTotals(orderId) {
+  async calculateOrderTotals(orderId, transaction = null) {
     const order = await Order.findByPk(orderId, {
       include: [
         { model: OrderItem, as: 'orderItems' },
         { model: Restaurant, as: 'restaurant' }
-      ]
+      ],
+      transaction
     });
 
     if (!order) {
@@ -54,18 +55,20 @@ class OrderService {
       subtotal += parseFloat(item.modifiersTotal || 0);
     }
 
-    // Get active taxes for the restaurant
-    const activeTaxes = await Tax.findAll({
+    // Get all taxes for the restaurant to check if any exist
+    const allTaxes = await Tax.findAll({
       where: {
-        restaurantId: order.restaurantId,
-        isActive: true
+        restaurantId: order.restaurantId
       }
     });
+
+    // Get active taxes only
+    const activeTaxes = allTaxes.filter(tax => tax.isActive === true);
 
     // Calculate tax amount based on active taxes
     let taxAmount = 0;
     if (activeTaxes.length > 0) {
-      // For now, apply all active taxes to the subtotal
+      // Apply all active taxes to the subtotal
       // In the future, we can filter by appliesTo (all, food, beverage, alcohol)
       for (const tax of activeTaxes) {
         if (tax.type === 'percentage') {
@@ -74,11 +77,13 @@ class OrderService {
           taxAmount += parseFloat(tax.rate);
         }
       }
-    } else {
-      // Fallback to restaurant settings if no active taxes
+    } else if (allTaxes.length === 0) {
+      // Only fallback to restaurant settings if no tax records exist at all
+      // This is for backward compatibility when tax system wasn't implemented
       const taxRate = order.restaurant?.settings?.operations?.taxRate || 0;
       taxAmount = (subtotal * taxRate) / 100;
     }
+    // If tax records exist but all are disabled (isActive: false), taxAmount remains 0
 
     // Get service charge rate
     const serviceChargeRate = order.restaurant?.settings?.operations?.serviceCharge || 0;
@@ -87,13 +92,13 @@ class OrderService {
     // Calculate total
     const totalAmount = subtotal + taxAmount + serviceCharge - parseFloat(order.discountAmount || 0);
 
-    // Update order
+    // Update order (use transaction if provided)
     await order.update({
       subtotal,
       taxAmount,
       serviceCharge,
       totalAmount
-    });
+    }, { transaction });
 
     return {
       subtotal,
@@ -167,8 +172,8 @@ class OrderService {
         }
       }
 
-      // Calculate totals
-      await this.calculateOrderTotals(order.id);
+      // Calculate totals (pass transaction so it can find the order)
+      await this.calculateOrderTotals(order.id, dbTransaction);
 
       await dbTransaction.commit();
 
@@ -271,9 +276,9 @@ class OrderService {
         }
       }
 
-      // Recalculate totals for both orders
-      await this.calculateOrderTotals(originalOrder.id);
-      await this.calculateOrderTotals(newOrder.id);
+      // Recalculate totals for both orders (pass transaction)
+      await this.calculateOrderTotals(originalOrder.id, dbTransaction);
+      await this.calculateOrderTotals(newOrder.id, dbTransaction);
 
       await dbTransaction.commit();
 
@@ -357,8 +362,8 @@ class OrderService {
         }, { transaction: dbTransaction });
       }
 
-      // Recalculate totals
-      await this.calculateOrderTotals(targetOrderId);
+      // Recalculate totals (pass transaction)
+      await this.calculateOrderTotals(targetOrderId, dbTransaction);
 
       await dbTransaction.commit();
 

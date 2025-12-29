@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { formatDistanceToNow } from 'date-fns';
@@ -23,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useOrderStore } from '@/store/orderStore';
+import { useTableStore } from '@/store/tableStore';
 import { OrderStatus } from '@/types';
 import { formatCurrency } from '@/lib/utils';
 
@@ -30,10 +31,17 @@ export function OrdersPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { orders, loadOrders, updateOrderStatus, isLoading } = useOrderStore();
+  const { tables, loadTables } = useTableStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('active');
+  const [tableFilter, setTableFilter] = useState<string>('all');
 
-  const statusConfig: Record<OrderStatus, { label: string; color: string; bgColor: string; icon: React.ReactNode }> = {
+  useEffect(() => {
+    loadOrders();
+    loadTables();
+  }, [loadOrders, loadTables]);
+
+  const statusConfig: Record<OrderStatus, { label: string; color: string; bgColor: string; icon: React.ReactNode }> = useMemo(() => ({
     pending: { label: t('orders.pending'), color: 'text-gray-700', bgColor: 'bg-gray-100', icon: <Clock className="h-3 w-3" /> },
     confirmed: { label: t('orders.confirmed'), color: 'text-blue-700', bgColor: 'bg-blue-100', icon: <CheckCircle className="h-3 w-3" /> },
     preparing: { label: t('orders.preparing'), color: 'text-orange-700', bgColor: 'bg-orange-100', icon: <Clock className="h-3 w-3" /> },
@@ -42,11 +50,7 @@ export function OrdersPage() {
     served: { label: t('orders.served'), color: 'text-purple-700', bgColor: 'bg-purple-100', icon: <CheckCircle className="h-3 w-3" /> },
     completed: { label: t('orders.completed'), color: 'text-gray-700', bgColor: 'bg-gray-100', icon: <CheckCircle className="h-3 w-3" /> },
     cancelled: { label: t('orders.cancelled'), color: 'text-red-700', bgColor: 'bg-red-100', icon: <XCircle className="h-3 w-3" /> },
-  };
-
-  useEffect(() => {
-    loadOrders();
-  }, [loadOrders]);
+  }), [t]);
 
   const filteredOrders = orders.filter(order => {
     const matchesSearch = 
@@ -60,7 +64,12 @@ export function OrdersPage() {
       matchesStatus = order.status === statusFilter;
     }
     
-    return matchesSearch && matchesStatus;
+    let matchesTable = true;
+    if (tableFilter !== 'all') {
+      matchesTable = order.tableId === tableFilter;
+    }
+    
+    return matchesSearch && matchesStatus && matchesTable;
   }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const stats = {
@@ -165,6 +174,21 @@ export function OrdersPage() {
             <SelectItem value="cancelled">{t('orders.cancelled')}</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={tableFilter} onValueChange={setTableFilter}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Filter by Table" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Tables</SelectItem>
+            {tables
+              .sort((a, b) => a.tableNumber.localeCompare(b.tableNumber))
+              .map(table => (
+                <SelectItem key={table.id} value={table.id}>
+                  {table.tableNumber}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Orders List */}
@@ -246,12 +270,6 @@ export function OrdersPage() {
                         {order.status === 'ready' && (
                           <DropdownMenuItem onClick={() => handleStatusChange(order.id, 'served')}>
                             {t('orders.markServed')}
-                          </DropdownMenuItem>
-                        )}
-                        {order.status === 'served' && (
-                          <DropdownMenuItem onClick={() => navigate(`/orders/${order.id}/checkout`)}>
-                            <Receipt className="mr-2 h-4 w-4" />
-                            {t('orders.checkout')}
                           </DropdownMenuItem>
                         )}
                         {!['completed', 'cancelled'].includes(order.status) && (

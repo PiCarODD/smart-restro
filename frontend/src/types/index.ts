@@ -210,6 +210,7 @@ export interface RecipeIngredient {
   quantity: number;
   unit: string;
   cost: number;
+  variantName?: string; // Optional: for variant-specific recipes
 }
 
 // Dashboard Types

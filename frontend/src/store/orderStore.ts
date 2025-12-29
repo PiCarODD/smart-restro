@@ -68,11 +68,11 @@ function mapApiOrderToOrder(apiOrder: ApiOrder): Order {
     waiterName: apiOrder.waiter ? `${apiOrder.waiter.firstName} ${apiOrder.waiter.lastName}` : undefined,
     status: apiOrder.status as OrderStatus,
     items: (apiOrder.orderItems || []).map(mapApiOrderItemToOrderItem),
-    subtotal: apiOrder.subtotal,
-    tax: apiOrder.taxAmount,
-    discount: apiOrder.discountAmount,
-    total: apiOrder.totalAmount,
-    guestCount: apiOrder.guestCount,
+    subtotal: parseFloat(apiOrder.subtotal?.toString() || '0'),
+    tax: parseFloat(apiOrder.taxAmount?.toString() || '0'),
+    discount: parseFloat(apiOrder.discountAmount?.toString() || '0'),
+    total: parseFloat(apiOrder.totalAmount?.toString() || '0'),
+    guestCount: apiOrder.guestCount || 1,
     notes: apiOrder.notes,
     createdAt: new Date(apiOrder.placedAt),
     updatedAt: apiOrder.completedAt ? new Date(apiOrder.completedAt) : 
@@ -141,9 +141,24 @@ export const useOrderStore = create<OrderStore>((set, get) => ({
         limit: 100, // Load a reasonable number of orders
       });
       
-      const orders = response.orders.map(mapApiOrderToOrder);
-      set({ orders, isLoading: false });
+      const newOrders = response.orders.map(mapApiOrderToOrder);
+      
+      // Only update if orders actually changed (prevent unnecessary re-renders)
+      const currentOrders = get().orders;
+      const ordersChanged = 
+        currentOrders.length !== newOrders.length ||
+        currentOrders.some((order, idx) => {
+          const newOrder = newOrders[idx];
+          return !newOrder || order.id !== newOrder.id || order.status !== newOrder.status;
+        });
+      
+      if (ordersChanged) {
+        set({ orders: newOrders, isLoading: false });
+      } else {
+        set({ isLoading: false });
+      }
     } catch (error) {
+      console.error('[OrderStore] loadOrders: Error occurred', error);
       const apiError = getApiError(error);
       set({ error: apiError.message, isLoading: false });
       throw error;
@@ -229,12 +244,25 @@ export const useOrderStore = create<OrderStore>((set, get) => ({
       const response = await ordersApi.updateStatus(id, status as ApiOrder['status']);
       const updatedOrder = mapApiOrderToOrder(response.order);
       
-      set(state => ({
-        orders: state.orders.map(order =>
-          order.id === id ? updatedOrder : order
-        ),
-        currentOrder: state.currentOrder?.id === id ? updatedOrder : state.currentOrder,
-      }));
+      // If the response doesn't include full order details, fetch the complete order
+      if (!updatedOrder.items || updatedOrder.items.length === 0) {
+        const fullOrderResponse = await ordersApi.getById(id);
+        const fullOrder = mapApiOrderToOrder(fullOrderResponse.order);
+        
+        set(state => ({
+          orders: state.orders.map(order =>
+            order.id === id ? fullOrder : order
+          ),
+          currentOrder: state.currentOrder?.id === id ? fullOrder : state.currentOrder,
+        }));
+      } else {
+        set(state => ({
+          orders: state.orders.map(order =>
+            order.id === id ? updatedOrder : order
+          ),
+          currentOrder: state.currentOrder?.id === id ? updatedOrder : state.currentOrder,
+        }));
+      }
     } catch (error) {
       const apiError = getApiError(error);
       set({ error: apiError.message });
@@ -421,36 +449,58 @@ export const useOrderStore = create<OrderStore>((set, get) => ({
 }));
 
 /**
+ * Debounce helper to prevent too many rapid calls
+ */
+let debounceTimer: NodeJS.Timeout | null = null;
+function debouncedLoadOrders(delay: number = 500) {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+  }
+  debounceTimer = setTimeout(() => {
+    const store = useOrderStore.getState();
+    if (!store.isLoading) {
+      store.loadOrders().catch(error => {
+        console.error('Failed to reload orders from socket event:', error);
+      });
+    }
+    debounceTimer = null;
+  }, delay);
+}
+
+// Track if subscriptions are already set up to prevent duplicates
+let orderSubscriptionsActive = false;
+let currentOrderUnsubscribe: (() => void) | null = null;
+
+/**
  * Initialize socket subscriptions for order events
  * This should be called after socket is initialized (e.g., in DashboardLayout)
  */
 export function initOrderSocketSubscriptions() {
-  const unsubscribe = subscribeToOrders({
-    'order:created': () => {
-      // Reload orders when a new order is created
-      useOrderStore.getState().loadOrders();
-    },
-    'order:status_changed': () => {
-      // Reload orders when order status changes
-      useOrderStore.getState().loadOrders();
-    },
-    'order:item_updated': () => {
-      // Reload orders when order item is updated (for KDS)
-      useOrderStore.getState().loadOrders();
-    },
-    'order:ready': () => {
-      // Reload orders when order is ready for waiter
-      useOrderStore.getState().loadOrders();
-    },
-    'order:cancelled': () => {
-      // Reload orders when order is cancelled
-      useOrderStore.getState().loadOrders();
-    },
-    'order:sent_to_kitchen': () => {
-      // Reload orders when order is sent to kitchen
-      useOrderStore.getState().loadOrders();
-    },
-  });
+  // Prevent duplicate subscriptions
+  if (orderSubscriptionsActive && currentOrderUnsubscribe) {
+    return currentOrderUnsubscribe;
+  }
+  
+  // Create stable callback references to prevent duplicate listeners
+  const callbacks = {
+    'order:created': () => debouncedLoadOrders(500),
+    'order:status_changed': () => debouncedLoadOrders(500),
+    'order:item_updated': () => debouncedLoadOrders(500),
+    'order:ready': () => debouncedLoadOrders(500),
+    'order:cancelled': () => debouncedLoadOrders(500),
+    'order:sent_to_kitchen': () => debouncedLoadOrders(500),
+  };
 
-  return unsubscribe;
+  const unsubscribe = subscribeToOrders(callbacks);
+  
+  // Store unsubscribe function and mark as active
+  currentOrderUnsubscribe = () => {
+    unsubscribe();
+    orderSubscriptionsActive = false;
+    currentOrderUnsubscribe = null;
+  };
+  
+  orderSubscriptionsActive = true;
+  
+  return currentOrderUnsubscribe;
 }

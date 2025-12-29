@@ -42,7 +42,7 @@ export function TablesPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { tables, sections, loadTables, loadSections, updateTableStatus, deleteTable, isLoading, error, clearError } = useTableStore();
-  const { loadOrders, getActiveOrderByTable } = useOrderStore();
+  const { orders, loadOrders, getOrdersByTable } = useOrderStore();
 
   const statusConfig: Record<TableStatus, { label: string; color: string; bgColor: string }> = {
     available: { label: t('tables.available'), color: 'text-green-700', bgColor: 'bg-green-100' },
@@ -54,8 +54,10 @@ export function TablesPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isSectionManagerOpen, setIsSectionManagerOpen] = useState(false);
+  const [isTableOptionsOpen, setIsTableOptionsOpen] = useState(false);
   const [editingTable, setEditingTable] = useState<Table | null>(null);
   const [deletingTable, setDeletingTable] = useState<Table | null>(null);
+  const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [activeSection, setActiveSection] = useState('all');
 
   useEffect(() => {
@@ -124,12 +126,32 @@ export function TablesPage() {
   };
 
   const handleTableClick = (table: Table) => {
-    // Navigate to POS for this table
+    if (table.status === 'occupied') {
+      // Show options dialog for occupied tables
+      setSelectedTable(table);
+      setIsTableOptionsOpen(true);
+      return;
+    }
+    // Navigate to POS for available tables
     navigate(`/pos/${table.id}`);
   };
 
-  const getTableOrder = (tableId: string) => {
-    return getActiveOrderByTable(tableId);
+  const handleAddOrder = (table: Table) => {
+    setIsTableOptionsOpen(false);
+    setSelectedTable(null);
+    navigate(`/pos/${table.id}`);
+  };
+
+  const handleViewOrders = (table: Table) => {
+    setIsTableOptionsOpen(false);
+    setSelectedTable(null);
+    navigate(`/tables/${table.id}/orders`);
+  };
+
+  const getTableOrders = (tableId: string) => {
+    return getOrdersByTable(tableId).filter(order => 
+      !['completed', 'cancelled'].includes(order.status)
+    );
   };
 
   if (isLoading) {
@@ -224,7 +246,9 @@ export function TablesPage() {
             {filteredTables.map((table) => {
               const status = statusConfig[table.status];
               const sectionColor = getSectionColor(table.section);
-              const activeOrder = getTableOrder(table.id);
+              const tableOrders = getTableOrders(table.id);
+              const combinedTotal = tableOrders.reduce((sum, order) => sum + order.total, 0);
+              const totalItems = tableOrders.reduce((sum, order) => sum + order.items.length, 0);
               
               return (
                 <Card 
@@ -253,10 +277,6 @@ export function TablesPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                          <DropdownMenuItem onClick={() => handleTableClick(table)}>
-                            <ShoppingCart className="mr-2 h-4 w-4" />
-                            {activeOrder ? t('tables.viewOrder') : t('tables.newOrder')}
-                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => openEditDialog(table)}>
                             <Pencil className="mr-2 h-4 w-4" />
                             {t('tables.editTable')}
@@ -328,17 +348,20 @@ export function TablesPage() {
                     </Badge>
 
                     {/* Active Order Info */}
-                    {activeOrder && (
+                    {tableOrders.length > 0 && (
                       <div className="mt-3 pt-3 border-t">
                         <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">{activeOrder.orderNumber}</span>
-                          <span className="font-medium">{formatCurrency(activeOrder.total)}</span>
+                          <span className="text-muted-foreground">
+                            {tableOrders.length} {tableOrders.length === 1 ? 'order' : 'orders'}
+                          </span>
+                          <span className="font-medium">{formatCurrency(combinedTotal)}</span>
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">
-                          {activeOrder.items.length} {t('common.items')} • {activeOrder.status}
+                          {totalItems} {t('common.items')}
                         </p>
                       </div>
                     )}
+
                   </CardContent>
                 </Card>
               );
@@ -394,6 +417,44 @@ export function TablesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Table Options Dialog */}
+      <Dialog open={isTableOptionsOpen} onOpenChange={setIsTableOptionsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Table {selectedTable?.tableNumber}</DialogTitle>
+          </DialogHeader>
+          {selectedTable && (
+            <div className="space-y-3">
+              <div className="text-sm text-muted-foreground">
+                <p>Status: <span className="font-medium">{statusConfig[selectedTable.status].label}</span></p>
+                {getTableOrders(selectedTable.id).length > 0 && (
+                  <p className="mt-1">
+                    {getTableOrders(selectedTable.id).length} active {getTableOrders(selectedTable.id).length === 1 ? 'order' : 'orders'}
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-col gap-2 pt-2">
+                <Button 
+                  className="w-full" 
+                  onClick={() => handleAddOrder(selectedTable)}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Order
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="w-full" 
+                  onClick={() => handleViewOrders(selectedTable)}
+                >
+                  <ShoppingCart className="mr-2 h-4 w-4" />
+                  View Orders
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

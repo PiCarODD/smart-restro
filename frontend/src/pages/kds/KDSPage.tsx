@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { 
   ChefHat, 
@@ -25,18 +25,46 @@ import { cn } from '@/lib/utils';
 const WARNING_THRESHOLD = 10;
 const URGENT_THRESHOLD = 15;
 
+// Track component re-renders (reset on unmount)
+let renderCount = 0;
+let componentMounted = false;
+
 export function KDSPage() {
+  // Reset counter if component was unmounted
+  if (!componentMounted) {
+    renderCount = 0;
+    componentMounted = true;
+  }
+  
+  renderCount++;
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      componentMounted = false;
+      renderCount = 0;
+    };
+  }, []);
+  
+  if (renderCount > 20) {
+    console.error('[KDS] ERROR: Component has rendered', renderCount, 'times! Possible infinite loop!');
+    // Prevent further rendering if we're in an infinite loop
+    return <div className="p-4">Error: Too many re-renders detected. Please refresh the page.</div>;
+  }
+  
   const { t } = useTranslation();
   
-  // Use individual selectors - Zustand optimizes these automatically
+  // Use a simple selector - Zustand already optimizes this
+  // Don't use custom equality check as it might be causing issues
   const orders = useOrderStore((state) => state.orders);
+  
+  // Use stable selectors for functions (they don't change)
   const loadOrders = useOrderStore((state) => state.loadOrders);
   const updateOrderStatus = useOrderStore((state) => state.updateOrderStatus);
   const updateItemStatus = useOrderStore((state) => state.updateItemStatus);
   const isLoading = useOrderStore((state) => state.isLoading);
   
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [viewMode, setViewMode] = useState<'orders' | 'items'>('orders');
 
   // Load orders only once on mount
   useEffect(() => {
@@ -46,30 +74,46 @@ export function KDSPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Filter orders with safety checks
-  const kdsOrders = Array.isArray(orders) 
-    ? orders.filter(o => o && ['confirmed', 'preparing', 'ready'].includes(o.status))
-    : [];
-  const confirmedOrders = kdsOrders.filter(o => o.status === 'confirmed');
-  const preparingOrders = kdsOrders.filter(o => o.status === 'preparing');
-  const readyOrders = kdsOrders.filter(o => o.status === 'ready');
+  // Memoize filtered orders - only recalculate when orders array reference changes
+  // This is safe because Zustand only creates a new array when orders actually change
+  const kdsOrders = useMemo(() => {
+    if (!Array.isArray(orders)) {
+      return [];
+    }
+    return orders.filter(o => o && o.id && ['confirmed', 'preparing', 'ready'].includes(o.status));
+  }, [orders]);
 
-  // Helper functions
-  const getOrderAge = (order: Order): number => {
+  const confirmedOrders = useMemo(() => 
+    kdsOrders.filter(o => o.status === 'confirmed'),
+    [kdsOrders]
+  );
+
+  const preparingOrders = useMemo(() => 
+    kdsOrders.filter(o => o.status === 'preparing'),
+    [kdsOrders]
+  );
+
+  const readyOrders = useMemo(() => 
+    kdsOrders.filter(o => o.status === 'ready'),
+    [kdsOrders]
+  );
+
+  // Helper functions - memoized to prevent recreation on every render
+  const getOrderAge = useCallback((order: Order): number => {
     if (!order || !order.createdAt) return 0;
     try {
       return Math.floor((Date.now() - new Date(order.createdAt).getTime()) / 60000);
     } catch {
       return 0;
     }
-  };
+  }, []);
 
-  const getOrderUrgency = (order: Order): 'normal' | 'warning' | 'urgent' => {
+  const getOrderUrgency = useCallback((order: Order): 'normal' | 'warning' | 'urgent' => {
     const age = getOrderAge(order);
     if (age >= URGENT_THRESHOLD) return 'urgent';
     if (age >= WARNING_THRESHOLD) return 'warning';
     return 'normal';
-  };
+  }, [getOrderAge]);
 
   const urgencyColors = {
     normal: 'border-l-green-500',
@@ -77,41 +121,45 @@ export function KDSPage() {
     urgent: 'border-l-red-500 animate-pulse',
   };
 
-  // Handlers - NO auto reload to prevent loops
-  const handleStartPreparing = async (orderId: string) => {
+  // Handlers - memoized to prevent recreation on every render
+  const handleStartPreparing = useCallback(async (orderId: string) => {
     try {
       await updateOrderStatus(orderId, 'preparing');
+      // Reload orders to get full order details including items
+      await loadOrders();
     } catch (error) {
       console.error('Failed to update order status:', error);
     }
-  };
+  }, [updateOrderStatus, loadOrders]);
 
-  const handleMarkReady = async (orderId: string) => {
+  const handleMarkReady = useCallback(async (orderId: string) => {
     try {
       await updateOrderStatus(orderId, 'ready');
     } catch (error) {
       console.error('Failed to update order status:', error);
     }
-  };
+  }, [updateOrderStatus]);
 
-  const handleMarkServed = async (orderId: string) => {
+  const handleMarkServed = useCallback(async (orderId: string) => {
     try {
       await updateOrderStatus(orderId, 'served');
     } catch (error) {
       console.error('Failed to update order status:', error);
     }
-  };
+  }, [updateOrderStatus]);
 
-  const handleItemStatusChange = async (orderId: string, itemId: string, status: OrderItemStatus) => {
+  const handleItemStatusChange = useCallback(async (orderId: string, itemId: string, status: OrderItemStatus) => {
     try {
       await updateItemStatus(orderId, itemId, status);
     } catch (error) {
       console.error('Failed to update item status:', error);
     }
-  };
+  }, [updateItemStatus]);
 
   const renderOrderCard = (order: Order, showActions: boolean = true) => {
-    if (!order || !order.id) return null;
+    if (!order || !order.id) {
+      return null;
+    }
     
     try {
       const urgency = getOrderUrgency(order);
@@ -147,45 +195,58 @@ export function KDSPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-2 mb-4">
-              {(order.items || []).map(item => {
-                if (!item || !item.id) return null;
-                return (
-                  <div 
-                    key={item.id}
-                    className={cn(
-                      "flex items-start justify-between p-2 rounded",
-                      item.status === 'ready' ? 'bg-green-50 line-through opacity-60' :
-                      item.status === 'preparing' ? 'bg-yellow-50' : 'bg-muted/50'
-                    )}
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-lg">{item.quantity || 0}×</span>
-                        <span className="font-medium">{item.name || 'Unknown'}</span>
+              {(order.items && Array.isArray(order.items) && order.items.length > 0) ? (
+                order.items.map(item => {
+                  if (!item || !item.id) return null;
+                  return (
+                    <div 
+                      key={item.id}
+                      className={cn(
+                        "flex items-start justify-between p-2 rounded",
+                        item.status === 'ready' ? 'bg-green-50 line-through opacity-60' :
+                        item.status === 'preparing' ? 'bg-yellow-50' : 'bg-muted/50'
+                      )}
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-lg">{item.quantity || 0}×</span>
+                          <span className="font-medium">{item.name || 'Unknown'}</span>
+                        </div>
+                        {/* Variant (Size) */}
+                        {item.variant && (
+                          <p className="text-sm text-muted-foreground ml-7">
+                            Size: {item.variant}
+                          </p>
+                        )}
+                        {/* Modifiers (Addons) */}
+                        {item.modifiers && Array.isArray(item.modifiers) && item.modifiers.length > 0 && (
+                          <p className="text-sm text-blue-600 ml-7">
+                            Addons: {item.modifiers.join(', ')}
+                          </p>
+                        )}
+                        {/* Notes */}
+                        {item.notes && (
+                          <p className="text-sm text-orange-600 font-medium ml-7">⚠️ {item.notes}</p>
+                        )}
                       </div>
-                      {item.variant && (
-                        <p className="text-sm text-muted-foreground ml-7">{item.variant}</p>
-                      )}
-                      {item.modifiers && Array.isArray(item.modifiers) && item.modifiers.length > 0 && (
-                        <p className="text-sm text-blue-600 ml-7">+ {item.modifiers.join(', ')}</p>
-                      )}
-                      {item.notes && (
-                        <p className="text-sm text-orange-600 font-medium ml-7">⚠️ {item.notes}</p>
+                      {order.status === 'preparing' && item.status !== 'ready' && (
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          className="shrink-0"
+                          onClick={() => handleItemStatusChange(order.id, item.id, 'ready')}
+                        >
+                          <CheckCircle className="h-4 w-4" />
+                        </Button>
                       )}
                     </div>
-                    {order.status === 'preparing' && item.status !== 'ready' && (
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        className="shrink-0"
-                        onClick={() => handleItemStatusChange(order.id, item.id, 'ready')}
-                      >
-                        <CheckCircle className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })
+              ) : (
+                <div className="text-center text-muted-foreground py-4">
+                  <p className="text-sm">Loading order details...</p>
+                </div>
+              )}
             </div>
 
             {showActions && (
@@ -256,12 +317,6 @@ export function KDSPage() {
           >
             {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </Button>
-          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'orders' | 'items')}>
-            <TabsList>
-              <TabsTrigger value="orders">{t('kds.ordersView')}</TabsTrigger>
-              <TabsTrigger value="items">{t('kds.itemsView')}</TabsTrigger>
-            </TabsList>
-          </Tabs>
           <Button
             variant="default"
             onClick={() => window.open('/kds/fullscreen', '_blank', 'noopener,noreferrer')}
@@ -287,73 +342,67 @@ export function KDSPage() {
         </div>
       </div>
 
-      {viewMode === 'orders' ? (
-        <div className="grid grid-cols-3 gap-4 h-[calc(100%-6rem)]">
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2 mb-3 pb-2 border-b">
-              <Bell className="h-5 w-5 text-blue-600" />
-              <h2 className="font-semibold text-lg">{t('kds.confirmed')}</h2>
-              <Badge className="bg-blue-100 text-blue-700">{confirmedOrders.length}</Badge>
-            </div>
-            <ScrollArea className="flex-1">
-              <div className="space-y-3 pr-2">
-                {confirmedOrders.length === 0 ? (
-                  <div className="text-center text-muted-foreground py-8">
-                    {t('kds.noConfirmedOrders')}
-                  </div>
-                ) : (
-                  confirmedOrders.map(order => renderOrderCard(order))
-                )}
-              </div>
-            </ScrollArea>
+      <div className="grid grid-cols-3 gap-4 h-[calc(100%-6rem)]">
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2 mb-3 pb-2 border-b">
+            <Bell className="h-5 w-5 text-blue-600" />
+            <h2 className="font-semibold text-lg">{t('kds.confirmed')}</h2>
+            <Badge className="bg-blue-100 text-blue-700">{confirmedOrders.length}</Badge>
           </div>
-
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2 mb-3 pb-2 border-b">
-              <ChefHat className="h-5 w-5 text-orange-600" />
-              <h2 className="font-semibold text-lg">{t('kds.preparing')}</h2>
-              <Badge className="bg-orange-100 text-orange-700">{preparingOrders.length}</Badge>
+          <ScrollArea className="flex-1">
+            <div className="space-y-3 pr-2">
+              {confirmedOrders.length === 0 ? (
+                <div className="text-center text-muted-foreground py-8">
+                  {t('kds.noConfirmedOrders')}
+                </div>
+              ) : (
+                confirmedOrders.map(order => renderOrderCard(order))
+              )}
             </div>
-            <ScrollArea className="flex-1">
-              <div className="space-y-3 pr-2">
-                {preparingOrders.length === 0 ? (
-                  <div className="text-center text-muted-foreground py-8">
-                    {t('kds.noPreparingOrders')}
-                  </div>
-                ) : (
-                  preparingOrders.map(order => renderOrderCard(order))
-                )}
-              </div>
-            </ScrollArea>
-          </div>
-
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2 mb-3 pb-2 border-b">
-              <CheckCircle className="h-5 w-5 text-green-600" />
-              <h2 className="font-semibold text-lg">{t('kds.ready')}</h2>
-              <Badge className="bg-green-100 text-green-700">{readyOrders.length}</Badge>
-            </div>
-            <ScrollArea className="flex-1">
-              <div className="space-y-3 pr-2">
-                {readyOrders.length === 0 ? (
-                  <div className="text-center text-muted-foreground py-8">
-                    {t('kds.noReadyOrders')}
-                  </div>
-                ) : (
-                  readyOrders.map(order => renderOrderCard(order))
-                )}
-              </div>
-            </ScrollArea>
-          </div>
+          </ScrollArea>
         </div>
-      ) : (
-        <ScrollArea className="h-[calc(100%-6rem)]">
-          <ItemsView orders={kdsOrders} onItemReady={handleItemStatusChange} />
-        </ScrollArea>
-      )}
+
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2 mb-3 pb-2 border-b">
+            <ChefHat className="h-5 w-5 text-orange-600" />
+            <h2 className="font-semibold text-lg">{t('kds.preparing')}</h2>
+            <Badge className="bg-orange-100 text-orange-700">{preparingOrders.length}</Badge>
+          </div>
+          <ScrollArea className="flex-1">
+            <div className="space-y-3 pr-2">
+              {preparingOrders.length === 0 ? (
+                <div className="text-center text-muted-foreground py-8">
+                  {t('kds.noPreparingOrders')}
+                </div>
+              ) : (
+                preparingOrders.map(order => renderOrderCard(order))
+              )}
+            </div>
+          </ScrollArea>
+        </div>
+
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2 mb-3 pb-2 border-b">
+            <CheckCircle className="h-5 w-5 text-green-600" />
+            <h2 className="font-semibold text-lg">{t('kds.ready')}</h2>
+            <Badge className="bg-green-100 text-green-700">{readyOrders.length}</Badge>
+          </div>
+          <ScrollArea className="flex-1">
+            <div className="space-y-3 pr-2">
+              {readyOrders.length === 0 ? (
+                <div className="text-center text-muted-foreground py-8">
+                  {t('kds.noReadyOrders')}
+                </div>
+              ) : (
+                readyOrders.map(order => renderOrderCard(order))
+              )}
+            </div>
+          </ScrollArea>
+        </div>
+      </div>
 
       {kdsOrders.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="flex items-center justify-center h-full min-h-[400px]">
           <div className="text-center">
             <ChefHat className="h-16 w-16 mx-auto text-muted-foreground/50 mb-4" />
             <h2 className="text-2xl font-bold text-muted-foreground">All caught up!</h2>
@@ -365,87 +414,3 @@ export function KDSPage() {
   );
 }
 
-// Items View Component
-function ItemsView({ 
-  orders, 
-  onItemReady 
-}: { 
-  orders: Order[]; 
-  onItemReady: (orderId: string, itemId: string, status: OrderItemStatus) => void;
-}) {
-  try {
-    const itemGroups: Record<string, Array<{ order: Order; item: OrderItem }>> = {};
-    
-    (orders || []).forEach(order => {
-      if (!order || !order.items) return;
-      order.items.forEach(item => {
-        if (item && item.status !== 'ready' && item.status !== 'served') {
-          const key = item.name || 'Unknown';
-          if (!itemGroups[key]) {
-            itemGroups[key] = [];
-          }
-          itemGroups[key].push({ order, item });
-        }
-      });
-    });
-
-    const groupedItems = Object.entries(itemGroups).sort((a, b) => b[1].length - a[1].length);
-
-    if (groupedItems.length === 0) {
-      return (
-        <div className="text-center text-muted-foreground py-12">
-          No pending items
-        </div>
-      );
-    }
-
-    return (
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {groupedItems.map(([itemName, items]) => (
-          <Card key={itemName}>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">{itemName}</CardTitle>
-                <Badge className="bg-primary">{items.length}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {items.map(({ order, item }) => (
-                  <div 
-                    key={`${order.id}-${item.id}`}
-                    className={cn(
-                      "flex items-center justify-between p-2 rounded text-sm",
-                      item.status === 'preparing' ? 'bg-yellow-50' : 'bg-muted/50'
-                    )}
-                  >
-                    <div>
-                      <span className="font-bold">{item.quantity || 0}×</span>
-                      <span className="ml-2">{order.tableName || 'N/A'}</span>
-                      {item.variant && <span className="text-muted-foreground ml-1">({item.variant})</span>}
-                    </div>
-                    <Button 
-                      size="sm" 
-                      variant="ghost"
-                      className="h-7 w-7 p-0"
-                      onClick={() => onItemReady(order.id, item.id, 'ready')}
-                    >
-                      <CheckCircle className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    );
-  } catch (error) {
-    console.error('Error in ItemsView:', error);
-    return (
-      <div className="text-center text-red-500 py-12">
-        Error loading items view
-      </div>
-    );
-  }
-}
