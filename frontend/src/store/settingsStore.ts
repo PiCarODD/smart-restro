@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { restaurantApi, taxesApi, featuresApi, tenantApi, getApiError } from '@/lib/api';
-import type { Restaurant as ApiRestaurant } from '@/lib/api/restaurantApi';
+import { restaurantApi, taxesApi, featuresApi, getApiError } from '@/lib/api';
+import type { Restaurant as ApiRestaurant, RestaurantSettings } from '@/lib/api/restaurantApi';
 import type { Tax as ApiTax } from '@/lib/api/taxesApi';
 import type { FeatureToggle as ApiFeatureToggle } from '@/lib/api/featuresApi';
 import { useRestaurantStore } from './restaurantStore';
+import { useAuthStore } from './authStore';
 
 export interface FeatureToggle {
   id: string;
@@ -21,7 +22,7 @@ export interface TaxConfig {
   name: string;
   rate: number;
   enabled: boolean;
-  appliesTo: 'all' | 'food' | 'beverages' | 'alcohol';
+  // appliesTo removed - taxes apply to all orders when enabled
 }
 
 export interface RestaurantInfo {
@@ -34,6 +35,8 @@ export interface RestaurantInfo {
   currency: string;
   timezone: string;
   logo?: string;
+  autoApplyTax?: boolean;
+  taxRate?: number;
 }
 
 export interface PrinterConfig {
@@ -44,14 +47,43 @@ export interface PrinterConfig {
   enabled: boolean;
 }
 
+export interface ReceiptSettings {
+  header: {
+    restaurantName: boolean;
+    address: boolean;
+    phone: boolean;
+    customText?: string;
+  };
+  footer: {
+    thankYouMessage: string;
+    website?: string;
+    socialMedia?: string;
+  };
+  format: {
+    showTaxBreakdown: boolean;
+    showItemDetails: boolean;
+    showModifiers: boolean;
+    showTableNumber: boolean;
+    showWaiterName: boolean;
+    receiptWidth: '58mm' | '80mm';
+    autoPrint: boolean;
+  };
+  printer: {
+    enabled: boolean;
+    printerName?: string;
+    printerIP?: string;
+  };
+}
+
 interface SettingsStore {
   // Restaurant Info
   restaurantInfo: RestaurantInfo | null;
   isLoadingRestaurant: boolean;
   loadRestaurant: () => Promise<void>;
   updateRestaurantInfo: (info: Partial<RestaurantInfo>) => Promise<void>;
+  updateRestaurantSettings: (settings: Partial<RestaurantSettings>) => Promise<void>;
   uploadLogo: (file: File) => Promise<void>;
-  
+
   // Feature Toggles
   features: FeatureToggle[];
   isLoadingFeatures: boolean;
@@ -59,7 +91,7 @@ interface SettingsStore {
   toggleFeature: (featureKey: string) => Promise<void>;
   updateFeatureConfig: (featureKey: string, config: Record<string, any>) => Promise<void>;
   isFeatureEnabled: (featureKey: string) => boolean;
-  
+
   // Tax Configuration
   taxes: TaxConfig[];
   isLoadingTaxes: boolean;
@@ -67,30 +99,35 @@ interface SettingsStore {
   addTax: (tax: Omit<TaxConfig, 'id'>) => Promise<void>;
   updateTax: (id: string, updates: Partial<TaxConfig>) => Promise<void>;
   deleteTax: (id: string) => Promise<void>;
-  
+
   // Printers (local only, no backend API yet)
   printers: PrinterConfig[];
   addPrinter: (printer: Omit<PrinterConfig, 'id'>) => void;
   updatePrinter: (id: string, updates: Partial<PrinterConfig>) => void;
   deletePrinter: (id: string) => void;
-  
+
+  // Receipt Settings
+  receiptSettings: ReceiptSettings | null;
+  isLoadingReceiptSettings: boolean;
+  loadReceiptSettings: () => Promise<void>;
+  updateReceiptSettings: (settings: Partial<ReceiptSettings>) => Promise<void>;
+
   // Theme (local only)
   theme: 'light' | 'dark' | 'system';
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   kdsTheme: 'light' | 'dark';
   setKdsTheme: (theme: 'light' | 'dark') => void;
-  
+
   // Current Plan (for feature gating)
   currentPlan: 'starter' | 'professional' | 'enterprise';
-  updateSubscriptionTier: (tier: 'starter' | 'professional' | 'enterprise') => Promise<void>;
-  
+
   // Error handling
   error: string | null;
   clearError: () => void;
 }
 
 // Store subscription tier from restaurant
-let currentSubscriptionTier: 'starter' | 'professional' | 'enterprise' = 'professional';
+let currentSubscriptionTier: 'starter' | 'professional' | 'enterprise' = 'starter';
 
 export function getSubscriptionTier(): 'starter' | 'professional' | 'enterprise' {
   return currentSubscriptionTier;
@@ -119,14 +156,11 @@ function mapApiRestaurantToInfo(api: ApiRestaurant): RestaurantInfo {
 
 // Map API Tax to TaxConfig
 function mapApiTaxToConfig(api: ApiTax): TaxConfig {
-  // Convert 'beverage' to 'beverages' for frontend consistency
-  const appliesTo = api.appliesTo === 'beverage' ? 'beverages' : api.appliesTo;
   return {
     id: api.id,
     name: api.name,
     rate: api.rate,
     enabled: api.isActive,
-    appliesTo: appliesTo as 'all' | 'food' | 'beverages' | 'alcohol',
   };
 }
 
@@ -144,7 +178,7 @@ function mapApiFeatureToToggle(api: ApiFeatureToggle): FeatureToggle {
     'reservations': 'general',
     'multi_location': 'general',
   };
-  
+
   return {
     id: api.featureKey,
     name: api.featureKey.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
@@ -167,7 +201,9 @@ export const useSettingsStore = create<SettingsStore>()(
       printers: [],
       theme: 'light',
       kdsTheme: 'dark',
-      currentPlan: 'professional',
+      currentPlan: 'starter',
+      receiptSettings: null,
+      isLoadingReceiptSettings: false,
       error: null,
 
       loadRestaurant: async () => {
@@ -177,16 +213,32 @@ export const useSettingsStore = create<SettingsStore>()(
           const response = await restaurantApi.getById();
           const apiRestaurant = response.restaurant;
           const info = mapApiRestaurantToInfo(apiRestaurant);
-          
+
+          // Also load settings to get autoApplyTax and taxRate
+          try {
+            const settingsResponse = await restaurantApi.getSettings();
+            if (settingsResponse.settings?.operations) {
+              if (settingsResponse.settings.operations.autoApplyTax !== undefined) {
+                info.autoApplyTax = settingsResponse.settings.operations.autoApplyTax;
+              }
+              if (settingsResponse.settings.operations.taxRate !== undefined) {
+                info.taxRate = settingsResponse.settings.operations.taxRate;
+              }
+            }
+          } catch (settingsError) {
+            // If settings endpoint fails, continue with default
+            console.warn('Failed to load restaurant settings:', settingsError);
+          }
+
           // Update subscription tier if available
           if (apiRestaurant.subscriptionTier) {
             const tier = apiRestaurant.subscriptionTier as 'starter' | 'professional' | 'enterprise';
             setSubscriptionTier(tier);
             set({ currentPlan: tier });
           }
-          
+
           set({ restaurantInfo: info, isLoadingRestaurant: false });
-          
+
           // Sync with restaurantStore for header display
           const restaurantStore = useRestaurantStore.getState();
           if (restaurantStore.restaurant) {
@@ -225,6 +277,18 @@ export const useSettingsStore = create<SettingsStore>()(
           }
         } catch (error) {
           const apiError = getApiError(error);
+
+          // If 404, it might be a new tenant without a restaurant yet
+          // In this case, we should still set the plan from the user's tenant info
+          if (apiError.status === 404) {
+            const user = useAuthStore.getState().user;
+            if (user?.tenant?.subscriptionTier) {
+              const tier = user.tenant.subscriptionTier as 'starter' | 'professional' | 'enterprise';
+              setSubscriptionTier(tier);
+              set({ currentPlan: tier });
+            }
+          }
+
           set({ error: apiError.message || 'Failed to load restaurant', isLoadingRestaurant: false });
         }
       },
@@ -239,7 +303,7 @@ export const useSettingsStore = create<SettingsStore>()(
         // Optimistically update local state
         const updatedInfo = { ...current, ...info };
         set({ restaurantInfo: updatedInfo, error: null });
-        
+
         try {
           // Parse address back to components (simple split)
           const addressParts = (info.address || updatedInfo.address)?.split(', ') || [];
@@ -262,7 +326,7 @@ export const useSettingsStore = create<SettingsStore>()(
           const response = await restaurantApi.update(updateData);
           const savedInfo = mapApiRestaurantToInfo(response.restaurant);
           set({ restaurantInfo: savedInfo });
-          
+
           // Update restaurantStore to sync the name in the header
           const restaurantStore = useRestaurantStore.getState();
           if (restaurantStore.restaurant) {
@@ -278,6 +342,43 @@ export const useSettingsStore = create<SettingsStore>()(
           set({ restaurantInfo: current });
           const apiError = getApiError(error);
           set({ error: apiError.message || 'Failed to update restaurant' });
+        }
+      },
+
+      updateRestaurantSettings: async (settings: Partial<RestaurantSettings>) => {
+        set({ error: null });
+        try {
+          // Get current settings first
+          const currentSettings = await restaurantApi.getSettings();
+          const updatedSettings = { ...currentSettings.settings, ...settings };
+          
+          // Update settings
+          await restaurantApi.updateSettings(updatedSettings);
+          
+          // Immediately update local restaurantInfo if autoApplyTax or taxRate changed
+          if (settings.operations?.autoApplyTax !== undefined || settings.operations?.taxRate !== undefined) {
+            const currentInfo = get().restaurantInfo;
+            if (currentInfo) {
+              set({ 
+                restaurantInfo: { 
+                  ...currentInfo, 
+                  autoApplyTax: settings.operations?.autoApplyTax !== undefined 
+                    ? settings.operations.autoApplyTax 
+                    : currentInfo.autoApplyTax,
+                  taxRate: settings.operations?.taxRate !== undefined
+                    ? settings.operations.taxRate
+                    : currentInfo.taxRate
+                } 
+              });
+            }
+          }
+          
+          // Reload restaurant to get updated settings
+          await get().loadRestaurant();
+        } catch (error) {
+          const apiError = getApiError(error);
+          set({ error: apiError.message || 'Failed to update settings' });
+          throw error;
         }
       },
 
@@ -359,7 +460,7 @@ export const useSettingsStore = create<SettingsStore>()(
       isFeatureEnabled: (featureKey: string) => {
         const feature = get().features.find((f) => f.id === featureKey);
         if (!feature) return false;
-        
+
         // Check plan requirement
         if (feature.requiresPlan) {
           const planOrder = ['starter', 'professional', 'enterprise'];
@@ -367,7 +468,7 @@ export const useSettingsStore = create<SettingsStore>()(
           const requiredPlanIndex = planOrder.indexOf(feature.requiresPlan);
           if (currentPlanIndex < requiredPlanIndex) return false;
         }
-        
+
         return feature.enabled;
       },
 
@@ -390,7 +491,6 @@ export const useSettingsStore = create<SettingsStore>()(
             name: tax.name,
             rate: tax.rate,
             type: 'percentage', // Default to percentage, can be made configurable later
-            appliesTo: tax.appliesTo === 'beverages' ? 'beverage' : tax.appliesTo,
             isActive: tax.enabled,
           });
           const newTax = mapApiTaxToConfig(response.tax);
@@ -408,11 +508,8 @@ export const useSettingsStore = create<SettingsStore>()(
           const updateData: Partial<ApiTax> = {};
           if (updates.name !== undefined) updateData.name = updates.name;
           if (updates.rate !== undefined) updateData.rate = updates.rate;
-          if (updates.appliesTo !== undefined) {
-            updateData.appliesTo = updates.appliesTo === 'beverages' ? 'beverage' : updates.appliesTo;
-          }
           if (updates.enabled !== undefined) updateData.isActive = updates.enabled;
-          
+
           const response = await taxesApi.update(id, updateData);
           const updated = mapApiTaxToConfig(response.tax);
           set((state) => ({
@@ -456,24 +553,46 @@ export const useSettingsStore = create<SettingsStore>()(
         }));
       },
 
-      setTheme: (theme) => set({ theme }),
-      setKdsTheme: (kdsTheme) => set({ kdsTheme }),
-      
-      updateSubscriptionTier: async (tier) => {
-        set({ error: null });
+      loadReceiptSettings: async () => {
+        set({ isLoadingReceiptSettings: true, error: null });
         try {
-          await tenantApi.updateSubscription(tier);
-          setSubscriptionTier(tier);
-          set({ currentPlan: tier });
-          // Reload restaurant to get updated subscription tier
-          await get().loadRestaurant();
+          const response = await restaurantApi.getSettings();
+          const receiptSettings = response.settings?.receipt || null;
+          set({ receiptSettings, isLoadingReceiptSettings: false });
         } catch (error) {
           const apiError = getApiError(error);
-          set({ error: apiError.message || 'Failed to update subscription tier' });
+          set({ error: apiError.message || 'Failed to load receipt settings', isLoadingReceiptSettings: false });
+        }
+      },
+
+      updateReceiptSettings: async (settings: Partial<ReceiptSettings>) => {
+        set({ error: null });
+        try {
+          // Get current settings first
+          const currentSettings = await restaurantApi.getSettings();
+          const updatedSettings = {
+            ...currentSettings.settings,
+            receipt: {
+              ...currentSettings.settings?.receipt,
+              ...settings
+            }
+          };
+          
+          // Update settings
+          await restaurantApi.updateSettings(updatedSettings);
+          
+          // Reload receipt settings
+          await get().loadReceiptSettings();
+        } catch (error) {
+          const apiError = getApiError(error);
+          set({ error: apiError.message || 'Failed to update receipt settings' });
           throw error;
         }
       },
-      
+
+      setTheme: (theme) => set({ theme }),
+      setKdsTheme: (kdsTheme) => set({ kdsTheme }),
+
       clearError: () => set({ error: null }),
     }),
     {

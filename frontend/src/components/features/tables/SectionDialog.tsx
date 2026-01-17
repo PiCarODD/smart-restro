@@ -15,6 +15,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useTableStore, Section } from '@/store/tableStore';
+import { FormErrorSummary } from '@/components/ui/form-error-summary';
+import { useFormErrorHandler } from '@/hooks/useFormErrorHandler';
 
 const sectionSchema = z.object({
   name: z.string().min(1, 'Section name is required'),
@@ -45,6 +47,7 @@ const COLOR_OPTIONS = [
 export function SectionDialog({ open, onOpenChange, editingSection }: SectionDialogProps) {
   const { addSection, updateSection } = useTableStore();
   const [selectedColor, setSelectedColor] = useState('#3b82f6');
+  const [apiError, setApiError] = useState<any>(null);
 
   const {
     register,
@@ -52,6 +55,7 @@ export function SectionDialog({ open, onOpenChange, editingSection }: SectionDia
     reset,
     setValue,
     watch,
+    setError,
     formState: { errors },
   } = useForm<SectionFormData>({
     resolver: zodResolver(sectionSchema),
@@ -61,43 +65,53 @@ export function SectionDialog({ open, onOpenChange, editingSection }: SectionDia
     },
   });
 
+  const { handleApiError, clearError } = useFormErrorHandler(setError);
   const watchName = watch('name');
 
   useEffect(() => {
-    if (editingSection) {
-      reset({
-        name: editingSection.name,
-        color: editingSection.color,
-      });
-      setSelectedColor(editingSection.color || '#3b82f6');
-    } else {
-      reset({
-        name: '',
-        color: '#3b82f6',
-      });
-      setSelectedColor('#3b82f6');
+    if (open) {
+      clearError();
+      setApiError(null);
+      
+      if (editingSection) {
+        reset({
+          name: editingSection.name,
+          color: editingSection.color,
+        });
+        setSelectedColor(editingSection.color || '#3b82f6');
+      } else {
+        reset({
+          name: '',
+          color: '#3b82f6',
+        });
+        setSelectedColor('#3b82f6');
+      }
     }
-  }, [editingSection, reset]);
+  }, [editingSection, reset, open, clearError]);
 
   const onSubmit = async (data: SectionFormData) => {
-    const sectionData: any = {
-      name: data.name,
-      color: selectedColor,
-    };
-    
-    // Don't send icon field if not provided
-    // (icon is optional and we're not using it in the UI currently)
-
     try {
+      clearError();
+      setApiError(null);
+      
+      const sectionData: any = {
+        name: data.name,
+        color: selectedColor,
+      };
+      
+      // Don't send icon field if not provided
+      // (icon is optional and we're not using it in the UI currently)
+
       if (editingSection) {
         await updateSection(editingSection.id, sectionData);
       } else {
         await addSection(sectionData);
       }
       onOpenChange(false);
+      reset();
     } catch (error) {
-      console.error('Failed to save section:', error);
-      // Error is handled by the store
+      const errorData = handleApiError(error);
+      setApiError(errorData);
     }
   };
 
@@ -116,6 +130,7 @@ export function SectionDialog({ open, onOpenChange, editingSection }: SectionDia
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <FormErrorSummary error={apiError} onDismiss={() => { clearError(); setApiError(null); }} />
           {/* Name */}
           <div className="space-y-2">
             <Label htmlFor="name">Section Name *</Label>

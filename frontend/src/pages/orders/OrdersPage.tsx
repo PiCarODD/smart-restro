@@ -1,8 +1,8 @@
 import { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigationStore } from '@/store/navigationStore';
 import { useTranslation } from 'react-i18next';
 import { formatDistanceToNow } from 'date-fns';
-import { Search, Eye, Receipt, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { Search, Eye, Clock, CheckCircle, XCircle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,7 +29,7 @@ import { formatCurrency } from '@/lib/utils';
 
 export function OrdersPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { navigate } = useNavigationStore();
   const { orders, loadOrders, updateOrderStatus, isLoading } = useOrderStore();
   const { tables, loadTables } = useTableStore();
   const [searchQuery, setSearchQuery] = useState('');
@@ -53,22 +53,22 @@ export function OrdersPage() {
   }), [t]);
 
   const filteredOrders = orders.filter(order => {
-    const matchesSearch = 
+    const matchesSearch =
       order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       order.tableName.toLowerCase().includes(searchQuery.toLowerCase());
-    
+
     let matchesStatus = true;
     if (statusFilter === 'active') {
       matchesStatus = !['completed', 'cancelled'].includes(order.status);
     } else if (statusFilter !== 'all') {
       matchesStatus = order.status === statusFilter;
     }
-    
+
     let matchesTable = true;
     if (tableFilter !== 'all') {
       matchesTable = order.tableId === tableFilter;
     }
-    
+
     return matchesSearch && matchesStatus && matchesTable;
   }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
@@ -106,7 +106,7 @@ export function OrdersPage() {
           <h1 className="text-3xl font-bold">{t('orders.title')}</h1>
           <p className="text-muted-foreground">{t('orders.manageAndTrack')}</p>
         </div>
-        <Button onClick={() => navigate('/tables')}>
+        <Button onClick={() => navigate('tables')}>
           {t('orders.newOrder')}
         </Button>
       </div>
@@ -195,12 +195,12 @@ export function OrdersPage() {
       <div className="space-y-3">
         {filteredOrders.map(order => {
           const status = statusConfig[order.status];
-          
+
           return (
-            <Card 
+            <Card
               key={order.id}
               className="hover:shadow-md transition-shadow cursor-pointer"
-              onClick={() => navigate(`/orders/${order.id}`)}
+              onClick={() => navigate('orders.detail', { orderId: order.id })}
             >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
@@ -235,7 +235,7 @@ export function OrdersPage() {
                         {formatDistanceToNow(new Date(order.createdAt), { addSuffix: true })}
                       </p>
                     </div>
-                    
+
                     {/* Actions */}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
@@ -244,11 +244,11 @@ export function OrdersPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                        <DropdownMenuItem onClick={() => navigate(`/orders/${order.id}`)}>
+                        <DropdownMenuItem onClick={() => navigate('orders.detail', { orderId: order.id })}>
                           <Eye className="mr-2 h-4 w-4" />
                           {t('orders.viewDetails')}
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => navigate(`/pos/${order.tableId}`)}>
+                        <DropdownMenuItem onClick={() => navigate('pos', { tableId: order.tableId })}>
                           {t('orders.addItems')}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
@@ -275,7 +275,7 @@ export function OrdersPage() {
                         {!['completed', 'cancelled'].includes(order.status) && (
                           <>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem 
+                            <DropdownMenuItem
                               onClick={() => handleStatusChange(order.id, 'cancelled')}
                               className="text-destructive focus:text-destructive"
                             >
@@ -297,7 +297,7 @@ export function OrdersPage() {
       {filteredOrders.length === 0 && (
         <Card className="p-12 text-center">
           <p className="text-muted-foreground mb-4">{t('orders.noOrdersFound')}</p>
-          <Button onClick={() => navigate('/tables')}>{t('orders.createNewOrder')}</Button>
+          <Button onClick={() => navigate('tables')}>{t('orders.createNewOrder')}</Button>
         </Card>
       )}
     </div>

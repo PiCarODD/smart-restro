@@ -33,7 +33,7 @@ const getRedirectPath = (role: string): string => {
       return '/dashboard';
     case 'waiter':
     case 'server':
-      return '/waiter';
+      return '/tables';
     case 'kitchen':
       return '/kds';
     default:
@@ -202,7 +202,7 @@ export function UnifiedLoginPage() {
   const handleStartShift = () => {
     localStorage.setItem('waiter_shift_start', new Date().toISOString());
     setShowShiftDialog(false);
-    navigate('/waiter');
+    navigate('/tables');
   };
 
   const adminRememberMe = watchAdmin('rememberMe');

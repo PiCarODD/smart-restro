@@ -9,12 +9,16 @@ interface AuthStore {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
-  
+
   login: (credentials: LoginCredentials) => Promise<boolean>;
   waiterLogin: (identifier: string, pin: string) => Promise<boolean>;
   logout: () => Promise<void>;
   clearError: () => void;
   checkAuth: () => Promise<void>;
+
+  impersonatedFromToken: string | null;
+  impersonate: (userId: string) => Promise<boolean>;
+  stopImpersonating: () => void;
 }
 
 export const useAuthStore = create<AuthStore>()(
@@ -24,23 +28,24 @@ export const useAuthStore = create<AuthStore>()(
       isAuthenticated: false,
       isLoading: false,
       error: null,
+      impersonatedFromToken: null,
 
       login: async (credentials: LoginCredentials) => {
         set({ isLoading: true, error: null });
-        
+
         try {
           const response = await authApi.login({
             email: credentials.email,
             password: credentials.password,
             rememberMe: credentials.rememberMe || false,
           });
-          
+
           // Store token
           localStorage.setItem('auth_token', response.token);
           if (response.refreshToken) {
             localStorage.setItem('refresh_token', response.refreshToken);
           }
-          
+
           // Map API user to app User type
           const user: User = {
             id: response.user.id,
@@ -52,19 +57,21 @@ export const useAuthStore = create<AuthStore>()(
             tenantId: response.user.tenantId,
             restaurantId: response.user.restaurantId,
             isActive: response.user.isActive,
+            tenant: response.user.tenant,
+            restaurant: response.user.restaurant,
           };
-          
-          set({ 
-            user, 
-            isAuthenticated: true, 
+
+          set({
+            user,
+            isAuthenticated: true,
             isLoading: false,
-            error: null 
+            error: null
           });
           return true;
         } catch (error) {
           const apiError = getApiError(error);
-          set({ 
-            error: apiError.message || 'Login failed', 
+          set({
+            error: apiError.message || 'Login failed',
             isLoading: false,
             isAuthenticated: false,
             user: null
@@ -75,20 +82,20 @@ export const useAuthStore = create<AuthStore>()(
 
       waiterLogin: async (identifier: string, pin: string) => {
         set({ isLoading: true, error: null });
-        
+
         try {
           const response = await authApi.loginWithPin({
             identifier,
             pin,
             // restaurantId removed - backend extracts from user record for security
           });
-          
+
           // Store token
           localStorage.setItem('auth_token', response.token);
           if (response.refreshToken) {
             localStorage.setItem('refresh_token', response.refreshToken);
           }
-          
+
           // Map API user to app User type
           const user: User = {
             id: response.user.id,
@@ -100,19 +107,21 @@ export const useAuthStore = create<AuthStore>()(
             tenantId: response.user.tenantId,
             restaurantId: response.user.restaurantId,
             isActive: response.user.isActive,
+            tenant: response.user.tenant,
+            restaurant: response.user.restaurant,
           };
-          
-          set({ 
-            user, 
-            isAuthenticated: true, 
+
+          set({
+            user,
+            isAuthenticated: true,
             isLoading: false,
-            error: null 
+            error: null
           });
           return true;
         } catch (error) {
           const apiError = getApiError(error);
-          set({ 
-            error: apiError.message || 'Invalid PIN', 
+          set({
+            error: apiError.message || 'Invalid PIN',
             isLoading: false,
             isAuthenticated: false,
             user: null
@@ -129,17 +138,17 @@ export const useAuthStore = create<AuthStore>()(
         } finally {
           // Disconnect socket on logout
           disconnectSocket();
-          
+
           // Clear remembered credentials on logout (user must explicitly check remember me again)
           // Note: We keep the credentials in localStorage if remember_me was true,
           // so they persist across browser sessions. Only clear on explicit logout if desired.
           // For now, we'll keep them unless the user unchecks "remember me"
-          
+
           // Always clear state even if API call fails
-          set({ 
-            user: null, 
+          set({
+            user: null,
             isAuthenticated: false,
-            error: null 
+            error: null
           });
         }
       },
@@ -149,12 +158,7 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       checkAuth: async () => {
-        // Don't check if already authenticated and user exists
         const currentState = get();
-        if (currentState.isAuthenticated && currentState.user) {
-          return;
-        }
-
         const token = localStorage.getItem('auth_token');
         if (!token) {
           set({ isAuthenticated: false, user: null, isLoading: false });
@@ -169,7 +173,7 @@ export const useAuthStore = create<AuthStore>()(
         set({ isLoading: true });
         try {
           const userData = await authApi.me();
-          
+
           const user: User = {
             id: userData.id,
             email: userData.email,
@@ -180,30 +184,87 @@ export const useAuthStore = create<AuthStore>()(
             tenantId: userData.tenantId,
             restaurantId: userData.restaurantId,
             isActive: userData.isActive,
+            tenant: userData.tenant,
+            restaurant: userData.restaurant,
           };
-          
-          set({ 
-            user, 
-            isAuthenticated: true, 
-            isLoading: false 
+
+          set({
+            user,
+            isAuthenticated: true,
+            isLoading: false
           });
         } catch (error) {
           // Token invalid or expired
           localStorage.removeItem('auth_token');
           localStorage.removeItem('refresh_token');
-          set({ 
-            isAuthenticated: false, 
-            user: null, 
-            isLoading: false 
+          set({
+            isAuthenticated: false,
+            user: null,
+            isLoading: false
           });
+        }
+      },
+      impersonate: async (userId: string) => {
+        set({ isLoading: true, error: null });
+        try {
+          const currentToken = localStorage.getItem('auth_token');
+          if (!currentToken) throw new Error('Not authenticated');
+
+          const response = await authApi.impersonate(userId);
+
+          // Store original token
+          localStorage.setItem('impersonated_from_token', currentToken);
+          // Set new token
+          localStorage.setItem('auth_token', response.token);
+
+          const user: User = {
+            id: response.user.id,
+            email: response.user.email,
+            firstName: response.user.firstName,
+            lastName: response.user.lastName,
+            name: `${response.user.firstName} ${response.user.lastName}`,
+            role: response.user.role as User['role'],
+            tenantId: response.user.tenantId,
+            restaurantId: response.user.restaurantId,
+            isActive: response.user.isActive,
+            tenant: response.user.tenant,
+            restaurant: response.user.restaurant,
+          };
+
+          set({
+            user,
+            isAuthenticated: true,
+            impersonatedFromToken: currentToken,
+            isLoading: false
+          });
+
+          // Force reload to clear other stores/cache
+          window.location.href = '/dashboard';
+          return true;
+        } catch (error: any) {
+          set({ error: error.message || 'Impersonation failed', isLoading: false });
+          return false;
+        }
+      },
+
+      stopImpersonating: () => {
+        const originalToken = localStorage.getItem('impersonated_from_token');
+        if (originalToken) {
+          localStorage.setItem('auth_token', originalToken);
+          localStorage.removeItem('impersonated_from_token');
+
+          // Clear state and rely on reload
+          set({ impersonatedFromToken: null });
+          window.location.href = '/saas-admin';
         }
       },
     }),
     {
       name: 'auth-storage',
-      partialize: (state) => ({ 
-        user: state.user, 
-        isAuthenticated: state.isAuthenticated 
+      partialize: (state) => ({
+        user: state.user,
+        isAuthenticated: state.isAuthenticated,
+        impersonatedFromToken: state.impersonatedFromToken
       }),
     }
   )

@@ -9,15 +9,19 @@ const orderValidator = require('../validators/orderValidator');
 router.use(authMiddleware.authenticate);
 
 // Orders routes
-router.get('/', orderController.list);
+// GET routes - allow waiters/servers to read orders
+router.get('/', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'server', 'cashier'), orderController.list);
+router.get('/stats', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'server'), orderController.getStats);
 router.post('/', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'server', 'cashier'), orderValidator.validateCreate, orderController.create);
-router.get('/:id', orderController.getById);
+router.get('/:id', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'server', 'cashier'), orderController.getById);
 router.put('/:id', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'cashier'), orderValidator.validateUpdate, orderController.update);
 router.put('/:id/status', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'cashier'), orderValidator.validateUpdateStatus, orderController.updateStatus);
 router.delete('/:id', authMiddleware.authorize('tenant_admin', 'admin', 'manager'), orderController.cancel);
 
 // Quick actions
 router.post('/:id/send-to-kitchen', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'server'), orderController.sendToKitchen);
+router.post('/:id/pickup', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'server'), orderController.pickup);
+router.post('/:id/serve', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'server'), orderController.serve);
 router.post('/:id/split', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'cashier'), orderValidator.validateSplit, orderController.split);
 router.post('/:id/transfer', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter'), orderValidator.validateTransfer, orderController.transfer);
 router.post('/:id/merge', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'cashier'), orderValidator.validateMerge, orderController.merge);

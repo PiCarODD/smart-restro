@@ -18,7 +18,12 @@ const apiClient: AxiosInstance = axios.create({
  * Request interceptor - Add auth token to requests
  */
 apiClient.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
+  (config: InternalAxiosRequestConfig & { skipAuth?: boolean }) => {
+    // Skip auth for public endpoints
+    if (config.skipAuth) {
+      return config;
+    }
+    
     // Get token from localStorage
     const token = localStorage.getItem('auth_token');
     
@@ -82,6 +87,7 @@ apiClient.interceptors.response.use(
 export interface ApiError {
   message: string;
   errors?: Array<{ field: string; message: string }>;
+  details?: Array<{ field: string; message: string }>;
   status?: number;
 }
 
@@ -92,9 +98,45 @@ export const getApiError = (error: unknown): ApiError => {
   if (axios.isAxiosError(error)) {
     const response = error.response;
     if (response?.data) {
+      // Normalize error response format
+      const details = response.data.details || response.data.errors || [];
+      
+      // Map common error codes to user-friendly messages
+      let message = response.data.message || response.data.error || 'An error occurred';
+      
+      // Enhance messages based on status codes
+      if (!response.data.message && !response.data.error) {
+        switch (response.status) {
+          case 400:
+            message = 'Please check your input and try again';
+            break;
+          case 401:
+            message = 'Your session has expired. Please log in again';
+            break;
+          case 403:
+            message = 'You do not have permission to perform this action';
+            break;
+          case 404:
+            message = 'The requested resource was not found';
+            break;
+          case 409:
+            message = 'This record already exists';
+            break;
+          case 422:
+            message = 'Validation error. Please check the form';
+            break;
+          case 500:
+            message = 'An unexpected server error occurred. Please try again later';
+            break;
+          default:
+            message = 'An error occurred';
+        }
+      }
+      
       return {
-        message: response.data.message || response.data.error || 'An error occurred',
-        errors: response.data.details || response.data.errors,
+        message,
+        errors: Array.isArray(details) ? details : [],
+        details: Array.isArray(details) ? details : [],
         status: response.status,
       };
     }

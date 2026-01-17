@@ -8,7 +8,7 @@ const { User } = require('../models');
 const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       throw new AuthenticationError('No token provided');
     }
@@ -28,10 +28,16 @@ const authenticate = async (req, res, next) => {
       throw new AuthenticationError('User not found or inactive');
     }
 
+    // Debug logging (can be removed in production)
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[Auth] Authenticated user:', user.id, 'Role:', user.role, 'RestaurantId:', user.restaurantId);
+    }
+
     // Attach user and context to request
     req.user = user;
-    req.tenantId = decoded.tenantId;
-    req.restaurantId = decoded.restaurantId;
+    req.tenantId = user.tenantId || decoded.tenantId;
+    // Prioritize user.restaurantId from DB in case it was just assigned (onboarding)
+    req.restaurantId = user.restaurantId || decoded.restaurantId;
 
     next();
   } catch (error) {
@@ -51,11 +57,21 @@ const authorize = (...allowedRoles) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
-      return res.status(403).json({ 
+    const userRole = req.user.role;
+    
+    // Debug logging (can be removed in production)
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[Auth] User role:', userRole, 'Allowed roles:', allowedRoles);
+      console.log('[Auth] User restaurantId:', req.restaurantId, 'User object restaurantId:', req.user.restaurantId);
+    }
+
+    // Check if user role is in allowed roles
+    if (!userRole || !allowedRoles.includes(userRole)) {
+      return res.status(403).json({
         error: 'Insufficient permissions',
-        required: allowedRoles,
-        current: req.user.role
+        message: `User role '${userRole || 'null'}' is not in allowed roles: ${allowedRoles.join(', ')}`,
+        userRole: userRole,
+        allowedRoles: allowedRoles
       });
     }
 
@@ -69,7 +85,7 @@ const authorize = (...allowedRoles) => {
 const optionalAuth = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    
+
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.split(' ')[1];
       const decoded = authService.verifyToken(token);
@@ -81,7 +97,7 @@ const optionalAuth = async (req, res, next) => {
         req.restaurantId = decoded.restaurantId;
       }
     }
-    
+
     next();
   } catch (error) {
     // Continue without authentication

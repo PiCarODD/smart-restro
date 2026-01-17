@@ -1,5 +1,6 @@
 const { User } = require('../models');
 const authService = require('../services/authService');
+const userLimitService = require('../services/userLimitService');
 const { NotFoundError, AuthorizationError, ValidationError } = require('../utils/errors');
 
 class UserController {
@@ -74,6 +75,16 @@ class UserController {
   async create(req, res, next) {
     try {
       const { email, password, firstName, lastName, phone, role, pinCode, assignedSections } = req.body;
+
+      // Check user limit before creating
+      const limitCheck = await userLimitService.canCreateUser(req.tenantId);
+      if (!limitCheck.canCreate) {
+        return res.status(403).json({
+          error: 'User limit reached',
+          message: limitCheck.reason || 'Cannot create more users. Contact SaaS admin to increase limit.',
+          limitInfo: limitCheck.limitInfo
+        });
+      }
 
       // Hash password
       const passwordHash = await authService.hashPassword(password);

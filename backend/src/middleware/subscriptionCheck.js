@@ -14,6 +14,7 @@ class SubscriptionCheck {
     waiter_app: 'professional',
     auto_stock_deduction: 'professional',
     reservations: 'professional',
+    qr_code: 'enterprise',
     multi_location: 'enterprise',
     customer_self_order: 'enterprise',
     api_access: 'enterprise',

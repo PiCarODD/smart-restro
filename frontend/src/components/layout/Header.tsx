@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigationStore } from '@/store/navigationStore';
 import { useTranslation } from 'react-i18next';
-import { Bell, Search, User, LogOut, Globe, Check } from 'lucide-react';
+import { Bell, Search, User, LogOut, Globe, Check, ArrowLeftFromLine } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -15,6 +16,8 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuthStore } from '@/store/authStore';
 import { useRestaurantStore } from '@/store/restaurantStore';
+import { useSettingsStore } from '@/store/settingsStore';
+import { Badge } from '@/components/ui/badge';
 
 type Language = 'en' | 'my';
 const languages: { code: Language; name: string; nativeName: string }[] = [
@@ -27,9 +30,10 @@ interface HeaderProps {
 }
 
 export function Header({ title }: HeaderProps) {
-  const navigate = useNavigate();
-  const { user, logout } = useAuthStore();
+  const { navigate } = useNavigationStore();
+  const { user, logout, stopImpersonating, impersonatedFromToken } = useAuthStore();
   const { restaurant } = useRestaurantStore();
+  const { currentPlan } = useSettingsStore();
   const { t, i18n } = useTranslation();
   const [currentLanguage, setCurrentLanguage] = useState<Language>(i18n.language as Language || 'en');
 
@@ -46,7 +50,7 @@ export function Header({ title }: HeaderProps) {
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    navigate('login');
   };
 
   const handleLanguageChange = async (lang: Language) => {
@@ -65,8 +69,8 @@ export function Header({ title }: HeaderProps) {
         ) : (
           <div className="relative w-64">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input 
-              placeholder="Search..." 
+            <Input
+              placeholder="Search..."
               className="pl-9"
             />
           </div>
@@ -75,11 +79,34 @@ export function Header({ title }: HeaderProps) {
 
       {/* Right: Restaurant Name, Language, Notifications, User Menu */}
       <div className="flex items-center gap-2">
-        {/* Restaurant Name */}
-        {restaurant && (
-          <span className="text-sm text-muted-foreground hidden md:block mr-2">
-            {restaurant.name}
-          </span>
+        {/* Plan & Restaurant Name */}
+        <div className="hidden lg:flex flex-col items-end mr-4">
+          {restaurant && (
+            <span className="text-sm font-medium">
+              {restaurant.name}
+            </span>
+          )}
+          <Badge variant="outline" className={cn(
+            "h-5 text-[10px] font-bold uppercase tracking-wider px-1.5",
+            currentPlan === 'starter' && "border-blue-200 bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400",
+            currentPlan === 'professional' && "border-purple-200 bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400",
+            currentPlan === 'enterprise' && "border-amber-200 bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
+          )}>
+            {currentPlan} Plan
+          </Badge>
+        </div>
+
+        {/* Impersonation Banner */}
+        {impersonatedFromToken && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={stopImpersonating}
+            className="border-orange-500 text-orange-600 hover:bg-orange-50 hidden md:flex mr-2"
+          >
+            <ArrowLeftFromLine className="h-4 w-4 mr-2" />
+            Return to Admin
+          </Button>
         )}
 
         {/* Language Selector */}
@@ -93,7 +120,7 @@ export function Header({ title }: HeaderProps) {
             <DropdownMenuLabel>{t('nav.language')}</DropdownMenuLabel>
             <DropdownMenuSeparator />
             {languages.map((lang) => (
-              <DropdownMenuItem 
+              <DropdownMenuItem
                 key={lang.code}
                 onClick={() => handleLanguageChange(lang.code)}
                 className="flex items-center justify-between"
@@ -135,12 +162,12 @@ export function Header({ title }: HeaderProps) {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => navigate('/profile')}>
+            <DropdownMenuItem onClick={() => navigate('profile')}>
               <User className="mr-2 h-4 w-4" />
               {t('nav.profile')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem 
+            <DropdownMenuItem
               className="text-destructive focus:text-destructive"
               onClick={handleLogout}
             >

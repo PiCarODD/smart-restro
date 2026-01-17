@@ -4,8 +4,11 @@ import { Plus, Pencil, Trash2, Search, MoreHorizontal, Ban, Check, FlaskConical 
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -35,15 +38,37 @@ import { useInventoryStore } from '@/store/inventoryStore';
 import { MenuItem } from '@/types';
 import { formatCurrency } from '@/lib/utils';
 import { MenuItemDialog } from '@/components/features/menu/MenuItemDialog';
+import { NoCategoriesPrompt } from '@/components/features/menu/NoCategoriesPrompt';
 import { RecipeBuilder } from '@/components/features/inventory/RecipeBuilder';
+import { EmptyState } from '@/components/ui/empty-state';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+
+const categorySchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  description: z.string().optional(),
+  isActive: z.boolean(),
+});
+
+type CategoryFormData = z.infer<typeof categorySchema>;
 
 export function MenuItemsPage() {
   const { t } = useTranslation();
-  const { 
+  const {
     categories, 
     menuItems, 
     loadCategories, 
     loadMenuItems, 
+    addCategory,
     deleteMenuItem, 
     toggleItemAvailability,
     isLoading,
@@ -61,6 +86,25 @@ export function MenuItemsPage() {
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [deletingItem, setDeletingItem] = useState<MenuItem | null>(null);
   const [recipeItem, setRecipeItem] = useState<MenuItem | null>(null);
+  const [showNoCategoriesPrompt, setShowNoCategoriesPrompt] = useState(false);
+  const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
+  const [shouldOpenMenuItemDialogAfterCategory, setShouldOpenMenuItemDialogAfterCategory] = useState(false);
+
+  const {
+    register: registerCategory,
+    handleSubmit: handleCategorySubmit,
+    reset: resetCategory,
+    setValue: setCategoryValue,
+    watch: watchCategory,
+    formState: { errors: categoryErrors },
+  } = useForm<CategoryFormData>({
+    resolver: zodResolver(categorySchema),
+    defaultValues: {
+      name: '',
+      description: '',
+      isActive: true,
+    },
+  });
 
   useEffect(() => {
     const loadData = async () => {
@@ -70,6 +114,30 @@ export function MenuItemsPage() {
     };
     loadData();
   }, []);
+
+  // Auto-open menu item dialog after category is created
+  useEffect(() => {
+    if (shouldOpenMenuItemDialogAfterCategory && categories.length > 0 && !isCategoryDialogOpen) {
+      setShouldOpenMenuItemDialogAfterCategory(false);
+      setIsDialogOpen(true);
+    }
+  }, [categories.length, shouldOpenMenuItemDialogAfterCategory, isCategoryDialogOpen]);
+
+  const onSubmitCategory = async (data: CategoryFormData) => {
+    try {
+      await addCategory({
+        name: data.name,
+        description: data.description || '',
+        isActive: data.isActive,
+        icon: '🍽️', // Default icon
+        displayOrder: 0,
+      } as any);
+      setIsCategoryDialogOpen(false);
+      resetCategory();
+    } catch (error) {
+      console.error('Failed to create category:', error);
+    }
+  };
 
   const openRecipeDialog = (item: MenuItem) => {
     setRecipeItem(item);
@@ -99,6 +167,11 @@ export function MenuItemsPage() {
   };
 
   const openCreateDialog = () => {
+    // Check if categories exist
+    if (categories.length === 0) {
+      setShowNoCategoriesPrompt(true);
+      return;
+    }
     setEditingItem(null);
     setIsDialogOpen(true);
   };
@@ -120,6 +193,8 @@ export function MenuItemsPage() {
         setIsDeleteDialogOpen(false);
         setDeletingItem(null);
       } catch (error) {
+        // Error is already stored in the store and will be displayed
+        // The delete dialog will remain open so user can see the error
         console.error('Failed to delete menu item:', error);
       }
     }
@@ -156,34 +231,51 @@ export function MenuItemsPage() {
         </Button>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder={t('menu.searchMenuItems')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
+      {/* Empty State - No Categories */}
+      {categories.length === 0 && !isLoading && (
+        <Card className="p-12">
+          <EmptyState
+            title="No categories yet"
+            description="Create a menu category to organize your menu items before adding items."
+            action={{
+              label: 'Create Category',
+              onClick: () => setIsCategoryDialogOpen(true),
+            }}
           />
+        </Card>
+      )}
+
+      {/* Filters */}
+      {categories.length > 0 && (
+        <div className="flex gap-4">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder={t('menu.searchMenuItems')}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder={t('menu.allCategories')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t('menu.allCategories')}</SelectItem>
+              {categories.map(category => (
+                <SelectItem key={category.id} value={category.id}>
+                  {category.icon} {category.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder={t('menu.allCategories')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t('menu.allCategories')}</SelectItem>
-            {categories.map(category => (
-              <SelectItem key={category.id} value={category.id}>
-                {category.icon} {category.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      )}
 
       {/* Items Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {categories.length > 0 && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {filteredItems.map((item) => (
           <Card 
             key={item.id} 
@@ -308,9 +400,10 @@ export function MenuItemsPage() {
             </CardContent>
           </Card>
         ))}
-      </div>
+        </div>
+      )}
 
-      {filteredItems.length === 0 && (
+      {categories.length > 0 && filteredItems.length === 0 && (
         <Card className="p-12 text-center">
           <p className="text-muted-foreground mb-4">
             {searchQuery || selectedCategory !== 'all'
@@ -326,7 +419,76 @@ export function MenuItemsPage() {
         </Card>
       )}
 
-      {/* Create/Edit Dialog */}
+      {/* No Categories Prompt Dialog */}
+      <NoCategoriesPrompt
+        open={showNoCategoriesPrompt}
+        onOpenChange={setShowNoCategoriesPrompt}
+        onCreateCategory={() => {
+          setShouldOpenMenuItemDialogAfterCategory(true);
+          setIsCategoryDialogOpen(true);
+        }}
+      />
+
+      {/* Create Category Dialog */}
+      <Dialog open={isCategoryDialogOpen} onOpenChange={(open) => {
+        setIsCategoryDialogOpen(open);
+        if (!open) {
+          setShowNoCategoriesPrompt(false);
+          resetCategory();
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Category</DialogTitle>
+            <DialogDescription>
+              Create a new category to organize your menu items
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCategorySubmit(onSubmitCategory)} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="categoryName">Name *</Label>
+              <Input
+                id="categoryName"
+                placeholder="e.g., Appetizers, Main Courses"
+                {...registerCategory('name')}
+                className={categoryErrors.name ? 'border-destructive' : ''}
+              />
+              {categoryErrors.name && (
+                <p className="text-sm text-destructive">{categoryErrors.name.message}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="categoryDescription">Description</Label>
+              <Textarea
+                id="categoryDescription"
+                placeholder="Optional description"
+                {...registerCategory('description')}
+              />
+            </div>
+
+            <div className="flex items-center justify-between border rounded-lg p-4">
+              <div>
+                <Label>Active</Label>
+                <p className="text-sm text-muted-foreground">Show this category in the menu</p>
+              </div>
+              <Switch
+                checked={watchCategory('isActive')}
+                onCheckedChange={(checked) => setCategoryValue('isActive', checked)}
+              />
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsCategoryDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit">Create Category</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create/Edit Menu Item Dialog */}
       <MenuItemDialog
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
@@ -335,7 +497,12 @@ export function MenuItemsPage() {
       />
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={(open) => {
+        setIsDeleteDialogOpen(open);
+        if (!open) {
+          clearError(); // Clear error when dialog closes
+        }
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('menu.deleteItem')}</AlertDialogTitle>
@@ -343,8 +510,16 @@ export function MenuItemsPage() {
               {t('menu.deleteItemConfirm', { name: deletingItem?.name || '' })}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          
+          {/* Error Message */}
+          {error && (
+            <div className="bg-destructive/15 text-destructive px-4 py-3 rounded-md text-sm">
+              {error}
+            </div>
+          )}
+          
           <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => clearError()}>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"

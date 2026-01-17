@@ -75,12 +75,19 @@ io.on('connection', (socket) => {
     console.log(`Socket ${socket.id} joined waiter:${waiterId}`);
   });
 
+  // Join table-specific room
+  socket.on('join:table', (tableId) => {
+    socket.join(`table:${tableId}`);
+    console.log(`Socket ${socket.id} joined table:${tableId}`);
+  });
+
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
   });
 });
-// const tableSocket = require('./sockets/tableSocket');
-// tableSocket(io);
+
+const tableSocket = require('./sockets/tableSocket');
+tableSocket(io);
 
 // Start server
 if (require.main === module) {

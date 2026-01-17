@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { 
-  ChefHat, 
-  Clock, 
-  Volume2, 
+import {
+  ChefHat,
+  Clock,
+  Volume2,
   VolumeX,
   CheckCircle,
   AlertTriangle,
@@ -22,32 +22,50 @@ import { useOrderStore } from '@/store/orderStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { Order, OrderItemStatus } from '@/types';
 import { cn } from '@/lib/utils';
+import { initSocket, disconnectSocket } from '@/lib/socket';
+import { initOrderSocketSubscriptions } from '@/store/orderStore';
 
 // Time thresholds for color coding (in minutes)
 const WARNING_THRESHOLD = 10;
 const URGENT_THRESHOLD = 15;
 
 export function KDSStandalonePage() {
-  const { 
-    orders, 
-    loadOrders, 
-    updateOrderStatus, 
+  const {
+    orders,
+    loadOrders,
+    updateOrderStatus,
     updateItemStatus,
   } = useOrderStore();
-  
+
   const { kdsTheme, setKdsTheme } = useSettingsStore();
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lastOrderCount, setLastOrderCount] = useState(0);
   const [currentTime, setCurrentTime] = useState(new Date());
-  
+
   const isDark = kdsTheme === 'dark';
 
   useEffect(() => {
+    // Initial Load
     loadOrders();
-    // Refresh every 5 seconds for real-time updates
-    const interval = setInterval(loadOrders, 5000);
-    return () => clearInterval(interval);
+
+    // Initialize Socket for real-time updates
+    // In standalone, DashboardLayout isn't present, so we must init manually
+    const socket = initSocket();
+    let orderUnsubscribe: (() => void) | undefined;
+
+    if (socket) {
+      orderUnsubscribe = initOrderSocketSubscriptions();
+    }
+
+    // Polling as reliable backup (increased interval to 30s)
+    const interval = setInterval(loadOrders, 30000);
+
+    return () => {
+      clearInterval(interval);
+      if (orderUnsubscribe) orderUnsubscribe();
+      disconnectSocket();
+    };
   }, [loadOrders]);
 
   // Update clock every second
@@ -64,8 +82,8 @@ export function KDSStandalonePage() {
       try {
         const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleJh+i3VXTmZwb3yMp7e7r6CZk4h8bmNjY2l2iJqqr6yil5CPkpaXl5WVnpyso5eKfnd3gImOmJeRjo+QlZaYmZqbnp2enJqanJ6enJubmp2fnpuamJmcnZ2cnJydnJ2enJubmpucnJybm5qampubm5ycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJyc');
         audio.volume = 0.5;
-        audio.play().catch(() => {});
-      } catch (e) {}
+        audio.play().catch(() => { });
+      } catch (e) { }
     }
     setLastOrderCount(confirmedOrders.length);
   }, [orders, soundEnabled, lastOrderCount]);
@@ -82,7 +100,7 @@ export function KDSStandalonePage() {
   };
 
   // Filter orders for KDS
-  const kdsOrders = orders.filter(o => 
+  const kdsOrders = orders.filter(o =>
     ['confirmed', 'preparing', 'ready'].includes(o.status)
   );
 
@@ -121,7 +139,7 @@ export function KDSStandalonePage() {
 
   const handleItemStatusChange = (orderId: string, itemId: string, status: OrderItemStatus) => {
     updateItemStatus(orderId, itemId, status);
-    
+
     const order = orders.find(o => o.id === orderId);
     if (order && status === 'ready') {
       const allItemsReady = order.items.every(
@@ -136,9 +154,9 @@ export function KDSStandalonePage() {
   const renderOrderCard = (order: Order) => {
     const urgency = getOrderUrgency(order);
     const age = getOrderAge(order);
-    
+
     return (
-      <Card 
+      <Card
         key={order.id}
         className={cn(
           "transition-all",
@@ -155,7 +173,7 @@ export function KDSStandalonePage() {
             <div className={cn(
               "flex items-center gap-1 text-lg font-bold",
               urgency === 'urgent' ? 'text-red-600' :
-              urgency === 'warning' ? 'text-yellow-600' : 'text-green-600'
+                urgency === 'warning' ? 'text-yellow-600' : 'text-green-600'
             )}>
               <Clock className="h-5 w-5" />
               <span>{age}m</span>
@@ -167,12 +185,12 @@ export function KDSStandalonePage() {
           {/* Order Items */}
           <div className="space-y-2 mb-3">
             {order.items.map(item => (
-              <div 
+              <div
                 key={item.id}
                 className={cn(
                   "flex items-start justify-between p-2 rounded text-sm",
                   item.status === 'ready' ? 'bg-green-100 line-through opacity-60' :
-                  item.status === 'preparing' ? 'bg-yellow-100' : 'bg-muted'
+                    item.status === 'preparing' ? 'bg-yellow-100' : 'bg-muted'
                 )}
               >
                 <div className="flex-1">
@@ -191,8 +209,8 @@ export function KDSStandalonePage() {
                   )}
                 </div>
                 {order.status === 'preparing' && item.status !== 'ready' && (
-                  <Button 
-                    size="lg" 
+                  <Button
+                    size="lg"
                     variant="outline"
                     className="shrink-0 h-12 w-12"
                     onClick={() => handleItemStatusChange(order.id, item.id, 'ready')}
@@ -207,8 +225,8 @@ export function KDSStandalonePage() {
           {/* Actions */}
           <div className="flex gap-2">
             {order.status === 'confirmed' && (
-              <Button 
-                className="flex-1 h-14 text-lg" 
+              <Button
+                className="flex-1 h-14 text-lg"
                 onClick={() => handleStartPreparing(order.id)}
               >
                 <ChefHat className="mr-2 h-6 w-6" />
@@ -216,8 +234,8 @@ export function KDSStandalonePage() {
               </Button>
             )}
             {order.status === 'preparing' && (
-              <Button 
-                className="flex-1 h-14 text-lg bg-green-600 hover:bg-green-700" 
+              <Button
+                className="flex-1 h-14 text-lg bg-green-600 hover:bg-green-700"
                 onClick={() => handleMarkReady(order.id)}
               >
                 <CheckCircle className="mr-2 h-6 w-6" />
@@ -225,8 +243,8 @@ export function KDSStandalonePage() {
               </Button>
             )}
             {order.status === 'ready' && (
-              <Button 
-                className="flex-1 h-14 text-lg bg-purple-600 hover:bg-purple-700" 
+              <Button
+                className="flex-1 h-14 text-lg bg-purple-600 hover:bg-purple-700"
                 onClick={() => handleMarkServed(order.id)}
               >
                 <Utensils className="mr-2 h-6 w-6" />
@@ -258,7 +276,7 @@ export function KDSStandalonePage() {
             </p>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-2">
           {/* Legend */}
           <div className="hidden md:flex items-center gap-4 mr-4 text-sm">
@@ -275,7 +293,7 @@ export function KDSStandalonePage() {
               <span>&gt;{URGENT_THRESHOLD}m</span>
             </div>
           </div>
-          
+
           <Button
             variant="outline"
             size="icon"

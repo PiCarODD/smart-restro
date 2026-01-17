@@ -36,7 +36,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useAuthStore } from '@/store/authStore';
-import { useNavigate } from 'react-router-dom';
+import { useNavigationStore } from '@/store/navigationStore';
 import { formatDate } from '@/lib/utils';
 import { usersApi } from '@/lib/api/usersApi';
 import { getApiError } from '@/lib/api';
@@ -51,7 +51,7 @@ const roleColors: Record<string, string> = {
 
 export function ProfilePage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { navigate } = useNavigationStore();
   const { user, logout } = useAuthStore();
   
   // Get display name - prefer name, fallback to firstName + lastName
@@ -171,7 +171,7 @@ export function ProfilePage() {
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    navigate('login');
   };
 
   const getInitials = (name?: string) => {

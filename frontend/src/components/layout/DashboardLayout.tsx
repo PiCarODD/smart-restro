@@ -1,5 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
-import { Outlet } from 'react-router-dom';
+import { useState, useEffect, useRef, ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -8,11 +7,24 @@ import { useRestaurantStore } from '@/store/restaurantStore';
 import { initSocket, disconnectSocket } from '@/lib/socket';
 import { initOrderSocketSubscriptions } from '@/store/orderStore';
 import { initTableSocketSubscriptions } from '@/store/tableStore';
+import { useSettingsStore } from '@/store/settingsStore';
 
-export function DashboardLayout() {
+interface DashboardLayoutProps {
+  children: ReactNode;
+}
+
+export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { isAuthenticated, user } = useAuthStore();
   const { loadRestaurant } = useRestaurantStore();
+
+  // Redirect to onboarding if needed
+  // Note: Onboarding route not implemented in state-based routing yet
+  // useEffect(() => {
+  //   if (needsOnboarding && user?.role === 'tenant_admin') {
+  //     navigate('onboarding'); // TODO: Add onboarding page to navigation
+  //   }
+  // }, [needsOnboarding, navigate, user?.role]);
   const hasLoadedRestaurant = useRef(false);
 
   // Load restaurant data once when authenticated
@@ -20,6 +32,7 @@ export function DashboardLayout() {
     if (isAuthenticated && user && !hasLoadedRestaurant.current) {
       hasLoadedRestaurant.current = true;
       loadRestaurant();
+      useSettingsStore.getState().loadRestaurant();
     }
   }, [isAuthenticated, user, loadRestaurant]);
 
@@ -33,29 +46,29 @@ export function DashboardLayout() {
   useEffect(() => {
     isMountedRef.current = true;
     const currentUserId = user?.id || null;
-    
+
     // Only initialize if authenticated and user exists, and we haven't initialized for this user
     if (isAuthenticated && user && currentUserId && currentUserId !== userIdRef.current) {
       userIdRef.current = currentUserId;
       socketInitializedRef.current = true;
-      
+
       // Initialize socket connection
       initSocket();
-      
+
       // Initialize socket subscriptions
       // Note: Subscriptions will be active once socket connects
       // getSocket() in subscribeToOrders/Table will return the socket instance
       const orderUnsubscribe = initOrderSocketSubscriptions();
       const tableUnsubscribe = initTableSocketSubscriptions();
-      
+
       unsubscribeRef.current = [orderUnsubscribe, tableUnsubscribe];
     }
-    
+
     // Cleanup: only disconnect if user actually changed or component unmounts
     return () => {
       isMountedRef.current = false;
       const cleanupUserId = user?.id || null;
-      
+
       // Only cleanup if:
       // 1. User is no longer authenticated, OR
       // 2. User ID changed (different user logged in)
@@ -70,7 +83,7 @@ export function DashboardLayout() {
           }
         });
         unsubscribeRef.current = [];
-        
+
         // Only disconnect socket if user is not authenticated
         // Don't disconnect on React Strict Mode double-invoke when user is still authenticated
         if (!isAuthenticated) {
@@ -93,14 +106,14 @@ export function DashboardLayout() {
   return (
     <TooltipProvider>
       <div className="flex h-screen overflow-hidden bg-background">
-        <Sidebar 
-          isCollapsed={isCollapsed} 
-          onToggle={() => setIsCollapsed(!isCollapsed)} 
+        <Sidebar
+          isCollapsed={isCollapsed}
+          onToggle={() => setIsCollapsed(!isCollapsed)}
         />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header />
           <main className="flex-1 overflow-auto p-6">
-            <Outlet />
+            {children}
           </main>
         </div>
       </div>

@@ -7,14 +7,10 @@ const createUserSchema = Joi.object({
   lastName: Joi.string().optional().allow('', null).max(100),
   phone: Joi.string().optional().max(50),
   role: Joi.string().valid(
-    'tenant_admin',
     'admin',
-    'manager',
-    'cashier',
-    'waiter',
-    'server',
     'kitchen',
-    'inventory'
+    'cashier',
+    'manager'
   ).optional(),
   // restaurantId removed - only from JWT token for security
   pinCode: Joi.string().optional().length(6).pattern(/^\d+$/),
@@ -27,14 +23,10 @@ const updateUserSchema = Joi.object({
   lastName: Joi.string().optional().min(1).max(100), // Keep for backward compatibility with admin operations
   phone: Joi.string().optional().max(50),
   role: Joi.string().valid(
-    'tenant_admin',
     'admin',
-    'manager',
-    'cashier',
-    'waiter',
-    'server',
     'kitchen',
-    'inventory'
+    'cashier',
+    'manager'
   ).optional(),
   // restaurantId removed - only from JWT token for security
   pinCode: Joi.string().optional().length(6).pattern(/^\d+$/),

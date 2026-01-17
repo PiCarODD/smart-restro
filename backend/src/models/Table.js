@@ -102,6 +102,22 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING(500),
       field: 'qr_code_url'
     },
+    qrCodeToken: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      unique: true,
+      field: 'qr_code_token'
+    },
+    qrCodeGeneratedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: 'qr_code_generated_at'
+    },
+    qrCodeExpiresAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: 'qr_code_expires_at'
+    },
     currentOrderId: {
       type: DataTypes.UUID,
       field: 'current_order_id'

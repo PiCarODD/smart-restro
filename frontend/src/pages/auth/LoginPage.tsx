@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useNavigationStore, PageName } from '@/store/navigationStore';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -19,23 +19,22 @@ const REMEMBERED_EMAIL_KEY = 'remembered_email';
 const REMEMBERED_PASSWORD_KEY = 'remembered_password';
 const REMEMBER_ME_KEY = 'remember_me';
 
-// Get redirect path based on user role
-const getRedirectPath = (role: string): string => {
+// Get redirect page based on user role
+const getRedirectPage = (role: string): PageName => {
   switch (role) {
     case 'super_admin':
-      return '/saas-admin';
+      return 'saas.dashboard';
     case 'tenant_admin':
     case 'admin':
     case 'manager':
     case 'cashier':
     case 'inventory':
-      return '/dashboard';
+      return 'dashboard';
     case 'waiter':
     case 'server':
-    case 'kitchen':
-      return '/waiter';
+      return 'tables';
     default:
-      return '/dashboard';
+      return 'dashboard';
   }
 };
 
@@ -49,7 +48,7 @@ export function LoginPage() {
   const { t } = useTranslation();
   const [showPassword, setShowPassword] = useState(false);
   const { login, isLoading, error, clearError } = useAuthStore();
-  const navigate = useNavigate();
+  const { navigate } = useNavigationStore();
 
   const loginSchema = z.object({
     email: z.string().email(t('auth.invalidEmail')),
@@ -109,10 +108,10 @@ export function LoginPage() {
       // Get the user from store after login
       const user = useAuthStore.getState().user;
       if (user) {
-        const redirectPath = getRedirectPath(user.role);
-        navigate(redirectPath);
+        const redirectPage = getRedirectPage(user.role);
+        navigate(redirectPage);
       } else {
-        navigate('/dashboard');
+        navigate('dashboard');
       }
     }
   };

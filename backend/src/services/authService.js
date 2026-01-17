@@ -1,7 +1,8 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { User, Tenant, Restaurant } = require('../models');
-const { AuthenticationError, ValidationError } = require('../utils/errors');
+const crypto = require('crypto');
+const { User, Tenant, Restaurant, RefreshToken } = require('../models');
+const { AuthenticationError, AuthorizationError, ValidationError } = require('../utils/errors');
 
 class AuthService {
   /**
@@ -31,15 +32,32 @@ class AuthService {
       role: user.role
     };
 
-    // Set token expiration based on rememberMe
-    // If rememberMe is true, use 30 days, otherwise use 1 day (or default from env)
-    const expiresIn = rememberMe 
-      ? '30d' 
-      : (process.env.JWT_EXPIRES_IN || '1d');
+    const expiresIn = rememberMe
+      ? '7d'
+      : (process.env.JWT_EXPIRES_IN || '8h');
 
     return jwt.sign(payload, process.env.JWT_SECRET, {
       expiresIn
     });
+  }
+
+  /**
+   * Generate refresh token
+   */
+  async generateRefreshToken(user, ipAddress = null, userAgent = null) {
+    const token = crypto.randomBytes(64).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+
+    const refreshToken = await RefreshToken.create({
+      userId: user.id,
+      token,
+      expiresAt,
+      ipAddress,
+      userAgent
+    });
+
+    return refreshToken;
   }
 
   /**
@@ -51,6 +69,60 @@ class AuthService {
     } catch (error) {
       throw new AuthenticationError('Invalid or expired token');
     }
+  }
+
+  /**
+   * Refresh access token using refresh token
+   */
+  async refreshAccessToken(refreshToken, ipAddress = null, userAgent = null) {
+    const storedToken = await RefreshToken.findOne({
+      where: {
+        token: refreshToken,
+        isRevoked: false,
+        expiresAt: { [require('sequelize').Op.gt]: new Date() }
+      },
+      include: [
+        { model: User, as: 'user' }
+      ]
+    });
+
+    if (!storedToken) {
+      throw new AuthenticationError('Invalid or expired refresh token');
+    }
+
+    const user = storedToken.user;
+
+    const accessToken = this.generateToken(user, user.restaurantId);
+
+    const newRefreshToken = await this.generateRefreshToken(user, ipAddress, userAgent);
+
+    await storedToken.update({ isRevoked: true });
+
+    return {
+      accessToken,
+      refreshToken: newRefreshToken.token,
+      expiresIn: 28800
+    };
+  }
+
+  /**
+   * Revoke refresh token
+   */
+  async revokeRefreshToken(token) {
+    await RefreshToken.update(
+      { isRevoked: true },
+      { where: { token } }
+    );
+  }
+
+  /**
+   * Revoke all refresh tokens for user
+   */
+  async revokeAllUserRefreshTokens(userId) {
+    await RefreshToken.update(
+      { isRevoked: true },
+      { where: { userId } }
+    );
   }
 
   /**
@@ -127,30 +199,29 @@ class AuthService {
   /**
    * Login with email/password
    */
-  async login(email, password, rememberMe = false) {
+  async login(email, password, rememberMe = false, ipAddress = null, userAgent = null) {
     const user = await User.findOne({
       where: { email, isActive: true },
       include: [
-        { model: Tenant, as: 'tenant', attributes: ['id', 'name', 'slug', 'subscriptionStatus'] },
+        { model: Tenant, as: 'tenant', attributes: ['id', 'name', 'slug', 'subscriptionTier', 'subscriptionStatus'] },
         { model: Restaurant, as: 'restaurant', attributes: ['id', 'name', 'slug'] }
       ]
     });
 
     if (!user) {
-      throw new AuthenticationError('Invalid email or password');
+      throw new AuthenticationError('Invalid credentials');
     }
 
-    // Check password
     const isValidPassword = await this.comparePassword(password, user.passwordHash);
     if (!isValidPassword) {
-      throw new AuthenticationError('Invalid email or password');
+      throw new AuthenticationError('Invalid credentials');
     }
 
-    // Update last login
     await user.update({ lastLoginAt: new Date() });
 
-    // Generate token with rememberMe option
     const token = this.generateToken(user, user.restaurantId, rememberMe);
+
+    const refreshToken = await this.generateRefreshToken(user, ipAddress, userAgent);
 
     return {
       user: {
@@ -164,15 +235,16 @@ class AuthService {
         tenant: user.tenant,
         restaurant: user.restaurant
       },
-      token
+      token,
+      refreshToken: refreshToken.token,
+      expiresIn: rememberMe ? 604800 : 28800
     };
   }
 
   /**
    * Login with PIN (waiter app)
    */
-  async loginWithPin(identifier, pin) {
-    // Identifier can be email or phone
+  async loginWithPin(identifier, pin, ipAddress = null, userAgent = null) {
     const user = await User.findOne({
       where: {
         isActive: true,
@@ -193,14 +265,13 @@ class AuthService {
     }
 
     if (!user.pinCode || user.pinCode !== pin) {
-      throw new AuthenticationError('Invalid PIN');
+      throw new AuthenticationError('Invalid credentials');
     }
 
-    // Update last login
     await user.update({ lastLoginAt: new Date() });
 
-    // Generate token
     const token = this.generateToken(user, user.restaurantId);
+    const refreshToken = await this.generateRefreshToken(user, ipAddress, userAgent);
 
     return {
       user: {
@@ -213,7 +284,9 @@ class AuthService {
         restaurantId: user.restaurantId,
         restaurant: user.restaurant
       },
-      token
+      token,
+      refreshToken: refreshToken.token,
+      expiresIn: 28800
     };
   }
 
@@ -223,7 +296,7 @@ class AuthService {
   async getUserById(userId) {
     const user = await User.findByPk(userId, {
       include: [
-        { model: Tenant, as: 'tenant', attributes: ['id', 'name', 'slug'] },
+        { model: Tenant, as: 'tenant', attributes: ['id', 'name', 'slug', 'subscriptionTier'] },
         { model: Restaurant, as: 'restaurant', attributes: ['id', 'name', 'slug'] }
       ]
     });
@@ -233,6 +306,44 @@ class AuthService {
     }
 
     return user;
+  }
+  /**
+   * Impersonate user
+   */
+  async impersonate(userId) {
+    const user = await User.findByPk(userId, {
+      include: [
+        { model: Tenant, as: 'tenant', attributes: ['id', 'name', 'slug', 'subscriptionTier', 'subscriptionStatus'] },
+        { model: Restaurant, as: 'restaurant', attributes: ['id', 'name', 'slug'] }
+      ]
+    });
+
+    if (!user) {
+      throw new AuthenticationError('User not found');
+    }
+
+    const saasAdminTenantId = process.env.SAAS_ADMIN_TENANT_ID || '00000000-0000-0000-0000-000000000000';
+
+    if (user.tenantId !== saasAdminTenantId && user.role !== 'super_admin') {
+      throw new AuthorizationError('Cannot impersonate users from other tenants');
+    }
+
+    const token = this.generateToken(user, user.restaurantId);
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        tenantId: user.tenantId,
+        restaurantId: user.restaurantId,
+        tenant: user.tenant,
+        restaurant: user.restaurant
+      },
+      token
+    };
   }
 }
 

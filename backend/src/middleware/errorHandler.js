@@ -1,4 +1,4 @@
-const { AppError } = require('../utils/errors');
+const { AppError, ValidationError } = require('../utils/errors');
 
 /**
  * Global Error Handler Middleware
@@ -11,6 +11,7 @@ const errorHandler = (err, req, res, next) => {
   if (err.name === 'SequelizeValidationError') {
     return res.status(400).json({
       error: 'Validation error',
+      message: 'Please check the form for errors',
       details: err.errors.map(e => ({
         field: e.path,
         message: e.message
@@ -20,10 +21,16 @@ const errorHandler = (err, req, res, next) => {
 
   // Sequelize unique constraint errors
   if (err.name === 'SequelizeUniqueConstraintError') {
+    const field = err.errors[0]?.path;
     return res.status(409).json({
       error: 'Duplicate entry',
-      field: err.errors[0]?.path,
-      message: 'This value already exists'
+      message: `${field ? field.charAt(0).toUpperCase() + field.slice(1) : 'This value'} already exists`,
+      details: [
+        {
+          field: field || 'unknown',
+          message: 'This value already exists'
+        }
+      ]
     });
   }
 
@@ -31,22 +38,52 @@ const errorHandler = (err, req, res, next) => {
   if (err.name === 'SequelizeForeignKeyConstraintError') {
     return res.status(400).json({
       error: 'Invalid reference',
-      message: 'The referenced record does not exist'
+      message: 'The referenced record does not exist',
+      details: [
+        {
+          field: 'reference',
+          message: 'The referenced record does not exist'
+        }
+      ]
+    });
+  }
+
+  // Joi validation errors (if using Joi)
+  if (err.isJoi || err.name === 'ValidationError') {
+    const details = err.details?.map((detail) => ({
+      field: detail.path.join('.'),
+      message: detail.message
+    })) || [];
+    
+    return res.status(400).json({
+      error: 'Validation error',
+      message: err.message || 'Please check the form for errors',
+      details
     });
   }
 
   // Custom application errors
   if (err instanceof AppError) {
-    return res.status(err.statusCode).json({
+    const response = {
       error: err.message,
-      ...(err.errors && { errors: err.errors })
-    });
+      message: err.message
+    };
+    
+    // Include field-level errors if available
+    if (err.errors && Array.isArray(err.errors)) {
+      response.details = err.errors;
+    } else if (err.errors) {
+      response.details = [err.errors];
+    }
+    
+    return res.status(err.statusCode).json(response);
   }
 
   // Default server error
   res.status(500).json({
-    error: process.env.NODE_ENV === 'production' 
-      ? 'Internal server error' 
+    error: 'Internal server error',
+    message: process.env.NODE_ENV === 'production' 
+      ? 'An unexpected error occurred. Please try again later.' 
       : err.message
   });
 };

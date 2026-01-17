@@ -46,6 +46,15 @@ export const restaurantApi = {
     }
   },
 
+  create: async (data: any): Promise<{ restaurant: Restaurant }> => {
+    try {
+      const response = await apiClient.post<{ restaurant: Restaurant }>('/restaurants', data);
+      return response.data;
+    } catch (error) {
+      throw getApiError(error);
+    }
+  },
+
   getById: async (): Promise<{ restaurant: Restaurant }> => {
     try {
       // Get current user's restaurant - no ID needed, uses JWT token

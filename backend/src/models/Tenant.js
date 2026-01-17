@@ -19,6 +19,12 @@ module.exports = (sequelize, DataTypes) => {
           as: 'auditLogs'
         });
       }
+      if (models.UserBillingRecord) {
+        Tenant.hasMany(models.UserBillingRecord, {
+          foreignKey: 'tenantId',
+          as: 'billingRecords'
+        });
+      }
     }
   }
 
@@ -91,6 +97,29 @@ module.exports = (sequelize, DataTypes) => {
     },
     phone: {
       type: DataTypes.STRING(50)
+    },
+    baseIncludedUsers: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 10,
+      field: 'base_included_users'
+    },
+    extraUsersCount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      field: 'extra_users_count'
+    },
+    extraUserMonthlyRate: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+      defaultValue: 5000.00,
+      field: 'extra_user_monthly_rate'
+    },
+    lastUserBillingDate: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: 'last_user_billing_date'
     }
   }, {
     sequelize,

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
+import { useNavigationStore } from '@/store/navigationStore';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -15,7 +15,7 @@ let hasCheckedAuthOnMount = false;
  */
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { isAuthenticated, isLoading, checkAuth, user } = useAuthStore();
-  const location = useLocation();
+  const { navigate, currentPage } = useNavigationStore();
   const hasCheckedRef = useRef(false);
 
   // Check authentication once on first mount if we have a token but no user data
@@ -36,6 +36,14 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     }
   }, [checkAuth, isAuthenticated, user]);
 
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated && currentPage !== 'login' && currentPage !== 'qr') {
+      hasCheckedAuthOnMount = false;
+      navigate('login');
+    }
+  }, [isAuthenticated, isLoading, currentPage, navigate]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -48,10 +56,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   }
 
   if (!isAuthenticated) {
-    // Reset flag when not authenticated so it can check again after login
-    hasCheckedAuthOnMount = false;
-    // Redirect to login with return URL
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    return null; // Navigation to login will happen in useEffect
   }
 
   return <>{children}</>;

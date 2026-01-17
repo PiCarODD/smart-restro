@@ -1,9 +1,7 @@
 const CACHE_NAME = 'smart-restaurant-v1';
 const urlsToCache = [
   '/',
-  '/waiter',
-  '/waiter/orders',
-  '/index.html',
+    '/index.html',
   '/manifest.json',
 ];
 

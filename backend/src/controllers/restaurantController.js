@@ -8,19 +8,21 @@ class RestaurantController {
    */
   async getCurrent(req, res, next) {
     try {
-      if (!req.restaurantId) {
-        throw new NotFoundError('Restaurant');
+      const restaurantId = req.restaurantId || (req.user && req.user.restaurantId);
+
+      if (!restaurantId) {
+        return res.status(404).json({ error: 'Restaurant not found', needsOnboarding: true });
       }
 
       const restaurant = await Restaurant.findOne({
-        where: { id: req.restaurantId, tenantId: req.tenantId },
+        where: { id: restaurantId, tenantId: req.tenantId },
         include: [
           { model: require('../models').Tenant, as: 'tenant', attributes: ['id', 'name', 'slug', 'subscriptionTier', 'subscriptionStatus'] }
         ]
       });
 
       if (!restaurant) {
-        throw new NotFoundError('Restaurant');
+        return res.status(404).json({ error: 'Restaurant not found', needsOnboarding: true });
       }
 
       // Include subscription tier in response
@@ -203,6 +205,80 @@ class RestaurantController {
         restaurant
       });
     } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Create a new restaurant
+   * POST /api/restaurants
+   */
+  async create(req, res, next) {
+    try {
+      const {
+        name,
+        slug,
+        description,
+        addressLine1,
+        addressLine2,
+        city,
+        state,
+        postalCode,
+        country,
+        phone,
+        email,
+        website,
+        timezone,
+        currency
+      } = req.body;
+
+      // Check tenant limits
+      const { Tenant, Restaurant: RestaurantModel } = require('../models');
+      const tenant = await Tenant.findByPk(req.tenantId, {
+        include: [{ model: RestaurantModel, as: 'restaurants' }]
+      });
+
+      if (!tenant) throw new NotFoundError('Tenant');
+
+      if (tenant.restaurants.length >= tenant.maxRestaurants) {
+        return res.status(403).json({ error: 'Maximum number of restaurants reached for your subscription' });
+      }
+
+      const generatedSlug = slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
+      const newRestaurant = await Restaurant.create({
+        tenantId: req.tenantId,
+        name,
+        slug: generatedSlug,
+        description,
+        addressLine1,
+        addressLine2,
+        city,
+        state,
+        postalCode,
+        country,
+        phone,
+        email,
+        website,
+        timezone,
+        currency,
+        isActive: true
+      });
+
+      // If the user doesn't have a restaurantId, assign this one (Onboarding case)
+      await require('../models').User.update(
+        { restaurantId: newRestaurant.id },
+        { where: { id: req.user.id, restaurantId: null } }
+      );
+
+      res.status(201).json({
+        message: 'Restaurant created successfully',
+        restaurant: newRestaurant
+      });
+    } catch (error) {
+      if (error.name === 'SequelizeUniqueConstraintError') {
+        return res.status(400).json({ error: 'Restaurant with this name/slug already exists' });
+      }
       next(error);
     }
   }

@@ -29,19 +29,5 @@ export const tenantApi = {
       throw getApiError(error);
     }
   },
-
-  /**
-   * Update subscription tier
-   */
-  updateSubscription: async (subscriptionTier: 'starter' | 'professional' | 'enterprise'): Promise<{ tenant: Tenant; message: string }> => {
-    try {
-      const response = await apiClient.put<{ tenant: Tenant; message: string }>('/tenant/me/subscription', {
-        subscriptionTier,
-      });
-      return response.data;
-    } catch (error) {
-      throw getApiError(error);
-    }
-  },
 };
 

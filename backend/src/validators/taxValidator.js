@@ -4,17 +4,17 @@ const createTaxSchema = Joi.object({
   name: Joi.string().required().min(1).max(100),
   rate: Joi.number().required().min(0).max(100),
   type: Joi.string().valid('percentage', 'fixed').optional().default('percentage'),
-  appliesTo: Joi.string().valid('all', 'food', 'beverage', 'alcohol').optional().default('all'),
   isActive: Joi.boolean().optional().default(true)
   // restaurantId removed - only from JWT token for security
+  // appliesTo removed - taxes apply to all orders when enabled
 });
 
 const updateTaxSchema = Joi.object({
   name: Joi.string().optional().min(1).max(100),
   rate: Joi.number().optional().min(0).max(100),
   type: Joi.string().valid('percentage', 'fixed').optional(),
-  appliesTo: Joi.string().valid('all', 'food', 'beverage', 'alcohol').optional(),
   isActive: Joi.boolean().optional()
+  // appliesTo removed - taxes apply to all orders when enabled
 });
 
 const listTaxesSchema = Joi.object({

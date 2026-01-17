@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useNavigationStore } from '@/store/navigationStore';
 import { Plus, Users, Clock, Pencil, Trash2, Settings2, ShoppingCart } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -36,13 +36,15 @@ import { useOrderStore } from '@/store/orderStore';
 import { Table, TableStatus } from '@/types';
 import { TableDialog } from '@/components/features/tables/TableDialog';
 import { SectionManager } from '@/components/features/tables/SectionManager';
+import { NoSectionsPrompt } from '@/components/features/tables/NoSectionsPrompt';
 import { formatCurrency } from '@/lib/utils';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export function TablesPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { navigate } = useNavigationStore();
   const { tables, sections, loadTables, loadSections, updateTableStatus, deleteTable, isLoading, error, clearError } = useTableStore();
-  const { orders, loadOrders, getOrdersByTable } = useOrderStore();
+  const { getOrdersByTable, loadOrders } = useOrderStore();
 
   const statusConfig: Record<TableStatus, { label: string; color: string; bgColor: string }> = {
     available: { label: t('tables.available'), color: 'text-green-700', bgColor: 'bg-green-100' },
@@ -55,10 +57,12 @@ export function TablesPage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isSectionManagerOpen, setIsSectionManagerOpen] = useState(false);
   const [isTableOptionsOpen, setIsTableOptionsOpen] = useState(false);
+  const [shouldOpenTableDialogAfterSection, setShouldOpenTableDialogAfterSection] = useState(false);
   const [editingTable, setEditingTable] = useState<Table | null>(null);
   const [deletingTable, setDeletingTable] = useState<Table | null>(null);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [activeSection, setActiveSection] = useState('all');
+  const [showNoSectionsPrompt, setShowNoSectionsPrompt] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
@@ -69,8 +73,16 @@ export function TablesPage() {
     loadData();
   }, []);
 
-  const filteredTables = activeSection === 'all' 
-    ? tables 
+  // Auto-open table dialog after section is created
+  useEffect(() => {
+    if (shouldOpenTableDialogAfterSection && sections.length > 0 && !isSectionManagerOpen) {
+      setShouldOpenTableDialogAfterSection(false);
+      setIsDialogOpen(true);
+    }
+  }, [sections.length, shouldOpenTableDialogAfterSection, isSectionManagerOpen]);
+
+  const filteredTables = activeSection === 'all'
+    ? tables
     : tables.filter(t => t.section === activeSection);
 
   const stats = {
@@ -91,6 +103,11 @@ export function TablesPage() {
   };
 
   const openCreateDialog = () => {
+    // Check if sections exist
+    if (sections.length === 0) {
+      setShowNoSectionsPrompt(true);
+      return;
+    }
     setEditingTable(null);
     setIsDialogOpen(true);
   };
@@ -117,11 +134,28 @@ export function TablesPage() {
     }
   };
 
+  // Check if table has unpaid orders (any active orders that aren't completed/cancelled)
+  const hasUnpaidOrders = (tableId: string): boolean => {
+    const tableOrders = getOrdersByTable(tableId);
+    // If there are any active orders (not completed or cancelled), consider them unpaid
+    // The backend will enforce the actual payment check
+    return tableOrders.some(order => 
+      order.status !== 'completed' && 
+      order.status !== 'cancelled'
+    );
+  };
+
   const handleStatusChange = async (tableId: string, status: TableStatus) => {
     try {
       await updateTableStatus(tableId, status);
-    } catch (error) {
+      await loadTables(); // Reload tables to reflect changes
+      await loadOrders(); // Reload orders to update unpaid check
+    } catch (error: any) {
       console.error('Failed to update table status:', error);
+      // Show error message to user
+      const errorMessage = error?.response?.data?.message || error?.message || 'Failed to update table status';
+      // Show error to user - you might want to use a toast library instead of alert
+      alert(errorMessage); // Simple alert for now - you might want to use a toast library
     }
   };
 
@@ -133,23 +167,23 @@ export function TablesPage() {
       return;
     }
     // Navigate to POS for available tables
-    navigate(`/pos/${table.id}`);
+    navigate('pos', { tableId: table.id });
   };
 
   const handleAddOrder = (table: Table) => {
     setIsTableOptionsOpen(false);
     setSelectedTable(null);
-    navigate(`/pos/${table.id}`);
+    navigate('pos', { tableId: table.id });
   };
 
   const handleViewOrders = (table: Table) => {
     setIsTableOptionsOpen(false);
     setSelectedTable(null);
-    navigate(`/tables/${table.id}/orders`);
+    navigate('tables.orders', { tableId: table.id });
   };
 
   const getTableOrders = (tableId: string) => {
-    return getOrdersByTable(tableId).filter(order => 
+    return getOrdersByTable(tableId).filter(order =>
       !['completed', 'cancelled'].includes(order.status)
     );
   };
@@ -171,7 +205,7 @@ export function TablesPage() {
           <Button variant="ghost" size="sm" onClick={clearError}>×</Button>
         </div>
       )}
-      
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -226,44 +260,58 @@ export function TablesPage() {
         </Card>
       </div>
 
-      {/* Section Tabs */}
-      <Tabs value={activeSection} onValueChange={setActiveSection}>
-        <TabsList>
-          <TabsTrigger value="all">
-            {t('tables.allSections')}
-          </TabsTrigger>
-          {sections.map(section => (
-            <TabsTrigger key={section.id} value={section.name} className="gap-2">
-              <span>{section.icon}</span>
-              {section.name}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+      {/* Empty State - No Sections */}
+      {sections.length === 0 && !isLoading && (
+        <Card className="p-12">
+          <EmptyState
+            title="No sections yet"
+            description="Create a section to organize your restaurant floor plan before adding tables."
+            action={{
+              label: 'Create Section',
+              onClick: () => setIsSectionManagerOpen(true),
+            }}
+          />
+        </Card>
+      )}
 
-        <TabsContent value={activeSection} className="mt-6">
-          {/* Tables Grid */}
-          <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+      {/* Section Tabs */}
+      {sections.length > 0 && (
+        <Tabs value={activeSection} onValueChange={setActiveSection}>
+          <TabsList>
+            <TabsTrigger value="all">
+              {t('tables.allSections')}
+            </TabsTrigger>
+            {sections.map(section => (
+              <TabsTrigger key={section.id} value={section.name} className="gap-2">
+                <span>{section.icon}</span>
+                {section.name}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          <TabsContent value={activeSection} className="mt-6">
+            {/* Tables Grid */}
+            <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
             {filteredTables.map((table) => {
               const status = statusConfig[table.status];
               const sectionColor = getSectionColor(table.section);
               const tableOrders = getTableOrders(table.id);
               const combinedTotal = tableOrders.reduce((sum, order) => sum + order.total, 0);
               const totalItems = tableOrders.reduce((sum, order) => sum + order.items.length, 0);
-              
+
               return (
-                <Card 
-                  key={table.id} 
-                  className={`relative overflow-hidden cursor-pointer hover:shadow-lg transition-all ${
-                    table.status === 'occupied' ? 'ring-2 ring-red-200' : 'hover:ring-2 hover:ring-primary/50'
-                  }`}
+                <Card
+                  key={table.id}
+                  className={`relative overflow-hidden cursor-pointer hover:shadow-lg transition-all ${table.status === 'occupied' ? 'ring-2 ring-red-200' : 'hover:ring-2 hover:ring-primary/50'
+                    }`}
                   onClick={() => handleTableClick(table)}
                 >
                   {/* Status indicator */}
-                  <div 
+                  <div
                     className="absolute top-0 left-0 right-0 h-1"
                     style={{ backgroundColor: sectionColor }}
                   />
-                  
+
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
@@ -282,32 +330,32 @@ export function TablesPage() {
                             {t('tables.editTable')}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             onClick={() => handleStatusChange(table.id, 'available')}
-                            disabled={table.status === 'available'}
+                            disabled={table.status === 'available' || hasUnpaidOrders(table.id)}
                           >
                             {t('tables.markAvailable')}
                           </DropdownMenuItem>
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             onClick={() => handleStatusChange(table.id, 'occupied')}
                             disabled={table.status === 'occupied'}
                           >
                             {t('tables.markOccupied')}
                           </DropdownMenuItem>
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             onClick={() => handleStatusChange(table.id, 'reserved')}
-                            disabled={table.status === 'reserved'}
+                            disabled={table.status === 'reserved' || hasUnpaidOrders(table.id)}
                           >
                             {t('tables.markReserved')}
                           </DropdownMenuItem>
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             onClick={() => handleStatusChange(table.id, 'cleaning')}
-                            disabled={table.status === 'cleaning'}
+                            disabled={table.status === 'cleaning' || hasUnpaidOrders(table.id)}
                           >
                             {t('tables.markCleaning')}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             onClick={() => openDeleteDialog(table)}
                             className="text-destructive focus:text-destructive"
                           >
@@ -377,8 +425,19 @@ export function TablesPage() {
               </Button>
             </Card>
           )}
-        </TabsContent>
-      </Tabs>
+          </TabsContent>
+        </Tabs>
+      )}
+
+      {/* No Sections Prompt Dialog */}
+      <NoSectionsPrompt
+        open={showNoSectionsPrompt}
+        onOpenChange={setShowNoSectionsPrompt}
+        onCreateSection={() => {
+          setShouldOpenTableDialogAfterSection(true);
+          setIsSectionManagerOpen(true);
+        }}
+      />
 
       {/* Create/Edit Table Dialog */}
       <TableDialog
@@ -388,7 +447,15 @@ export function TablesPage() {
       />
 
       {/* Section Manager Dialog */}
-      <Dialog open={isSectionManagerOpen} onOpenChange={setIsSectionManagerOpen}>
+      <Dialog 
+        open={isSectionManagerOpen} 
+        onOpenChange={(open) => {
+          setIsSectionManagerOpen(open);
+          if (!open) {
+            setShowNoSectionsPrompt(false);
+          }
+        }}
+      >
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{t('tables.manageSections')}</DialogTitle>
@@ -435,16 +502,16 @@ export function TablesPage() {
                 )}
               </div>
               <div className="flex flex-col gap-2 pt-2">
-                <Button 
-                  className="w-full" 
+                <Button
+                  className="w-full"
                   onClick={() => handleAddOrder(selectedTable)}
                 >
                   <Plus className="mr-2 h-4 w-4" />
                   Add Order
                 </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full" 
+                <Button
+                  variant="outline"
+                  className="w-full"
                   onClick={() => handleViewOrders(selectedTable)}
                 >
                   <ShoppingCart className="mr-2 h-4 w-4" />

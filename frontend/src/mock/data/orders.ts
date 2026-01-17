@@ -18,7 +18,7 @@ export const mockOrders: Order[] = [
         unitPrice: 10.99,
         totalPrice: 21.98,
         variant: 'Regular',
-        modifiers: ['Add Chicken', 'Extra Spicy'],
+        modifiers: [{ name: 'Add Chicken', price: 2.00 }, { name: 'Extra Spicy', price: 0 }],
         status: 'preparing',
       },
       {
@@ -68,7 +68,7 @@ export const mockOrders: Order[] = [
         unitPrice: 12.99,
         totalPrice: 38.97,
         variant: 'Regular',
-        modifiers: ['Add Shrimp'],
+        modifiers: [{ name: 'Add Shrimp', price: 3.00 }],
         status: 'pending',
       },
       {
@@ -78,7 +78,7 @@ export const mockOrders: Order[] = [
         quantity: 2,
         unitPrice: 13.99,
         totalPrice: 27.98,
-        modifiers: ['Chicken'],
+        modifiers: [{ name: 'Chicken', price: 2.00 }],
         status: 'pending',
       },
       {
@@ -116,7 +116,7 @@ export const mockOrders: Order[] = [
         quantity: 2,
         unitPrice: 14.99,
         totalPrice: 29.98,
-        modifiers: ['Beef'],
+        modifiers: [{ name: 'Beef', price: 3.00 }],
         status: 'served',
       },
       {
@@ -126,7 +126,7 @@ export const mockOrders: Order[] = [
         quantity: 2,
         unitPrice: 12.99,
         totalPrice: 25.98,
-        modifiers: ['Chicken', 'Extra Spicy'],
+        modifiers: [{ name: 'Chicken', price: 2.00 }, { name: 'Extra Spicy', price: 0 }],
         status: 'served',
       },
       {

@@ -3,6 +3,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Plus, X, ImagePlus, Trash2 } from 'lucide-react';
+import { FormErrorSummary } from '@/components/ui/form-error-summary';
+import { useFormErrorHandler } from '@/hooks/useFormErrorHandler';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -60,6 +62,7 @@ export function MenuItemDialog({ open, onOpenChange, editingItem, categories }: 
   const [newModifier, setNewModifier] = useState({ name: '', price: '' });
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null); // Store the uploaded image URL
+  const [apiError, setApiError] = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -68,6 +71,7 @@ export function MenuItemDialog({ open, onOpenChange, editingItem, categories }: 
     reset,
     setValue,
     watch,
+    setError,
     formState: { errors },
   } = useForm<MenuItemFormData>({
     resolver: zodResolver(menuItemSchema),
@@ -81,37 +85,43 @@ export function MenuItemDialog({ open, onOpenChange, editingItem, categories }: 
     },
   });
 
+  const { handleApiError, clearError } = useFormErrorHandler(setError);
+
   useEffect(() => {
-    if (editingItem) {
-      reset({
-        name: editingItem.name,
-        description: editingItem.description || '',
-        categoryId: editingItem.categoryId,
-        basePrice: editingItem.basePrice,
-        isActive: editingItem.isActive,
-        isAvailable: editingItem.isAvailable,
-      });
-      setVariants(editingItem.variants || []);
-      setModifiers(editingItem.modifiers || []);
-      const existingImage = editingItem.image || null;
-      setImagePreview(existingImage);
-      setImageUrl(existingImage); // Set imageUrl for editing existing items
-    } else {
-      reset({
-        name: '',
-        description: '',
-        categoryId: categories[0]?.id || '',
-        basePrice: 0,
-        isActive: true,
-        isAvailable: true,
-      });
-      setVariants([]);
-      setModifiers([]);
-      setImagePreview(null);
-      setImageUrl(null);
-      setImageUrl(null);
+    if (open) {
+      clearError();
+      setApiError(null);
+      
+      if (editingItem) {
+        reset({
+          name: editingItem.name,
+          description: editingItem.description || '',
+          categoryId: editingItem.categoryId,
+          basePrice: editingItem.basePrice,
+          isActive: editingItem.isActive,
+          isAvailable: editingItem.isAvailable,
+        });
+        setVariants(editingItem.variants || []);
+        setModifiers(editingItem.modifiers || []);
+        const existingImage = editingItem.image || null;
+        setImagePreview(existingImage);
+        setImageUrl(existingImage); // Set imageUrl for editing existing items
+      } else {
+        reset({
+          name: '',
+          description: '',
+          categoryId: categories[0]?.id || '',
+          basePrice: 0,
+          isActive: true,
+          isAvailable: true,
+        });
+        setVariants([]);
+        setModifiers([]);
+        setImagePreview(null);
+        setImageUrl(null);
+      }
     }
-  }, [editingItem, reset, categories]);
+  }, [editingItem, reset, categories, open, clearError]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -158,21 +168,30 @@ export function MenuItemDialog({ open, onOpenChange, editingItem, categories }: 
   };
 
   const onSubmit = async (data: MenuItemFormData) => {
-    const itemData = {
-      ...data,
-      variants,
-      modifiers,
-      allergens: [],
-      dietaryTags: [],
-      image: imageUrl || undefined, // Use the uploaded URL, not the preview data URL
-    };
+    try {
+      clearError();
+      setApiError(null);
+      
+      const itemData = {
+        ...data,
+        variants,
+        modifiers,
+        allergens: [],
+        dietaryTags: [],
+        image: imageUrl || undefined, // Use the uploaded URL, not the preview data URL
+      };
 
-    if (editingItem) {
-      updateMenuItem(editingItem.id, itemData);
-    } else {
-      addMenuItem(itemData);
+      if (editingItem) {
+        await updateMenuItem(editingItem.id, itemData);
+      } else {
+        await addMenuItem(itemData);
+      }
+      onOpenChange(false);
+      reset();
+    } catch (error) {
+      const errorData = handleApiError(error);
+      setApiError(errorData);
     }
-    onOpenChange(false);
   };
 
   const addVariant = () => {
@@ -212,6 +231,7 @@ export function MenuItemDialog({ open, onOpenChange, editingItem, categories }: 
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)}>
+          <FormErrorSummary error={apiError} onDismiss={() => { clearError(); setApiError(null); }} className="mb-4" />
           <Tabs defaultValue="basic" className="w-full">
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="basic">Basic Info</TabsTrigger>

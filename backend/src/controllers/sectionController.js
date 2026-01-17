@@ -154,13 +154,20 @@ class SectionController {
    */
   async reorder(req, res, next) {
     try {
-      const { sectionIds } = req.body; // Array of section IDs in new order
+      const { sectionIds } = req.body;
 
       if (!Array.isArray(sectionIds)) {
         return res.status(400).json({ error: 'sectionIds must be an array' });
       }
 
-      // Update display order for each section
+      const sectionCount = await Section.count({
+        where: { id: sectionIds, restaurantId: req.restaurantId }
+      });
+
+      if (sectionCount !== sectionIds.length) {
+        return res.status(400).json({ error: 'One or more sections do not belong to this restaurant' });
+      }
+
       const updates = sectionIds.map((sectionId, index) => {
         return Section.update(
           { displayOrder: index },

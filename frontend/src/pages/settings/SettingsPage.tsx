@@ -1,20 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { 
-  Settings,
-  Building2, 
-  ToggleLeft, 
-  Receipt, 
+import {
+  Building2,
+  Receipt,
   Moon,
   Sun,
   Monitor,
-  Lock,
   Crown,
   Save,
-  ChefHat,
-  ShoppingCart,
-  Package,
-  CreditCard,
-  Cog,
   ImagePlus,
   Trash2,
   Check,
@@ -39,33 +31,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
 import { useTranslation } from 'react-i18next';
-import { useSettingsStore, FeatureToggle, TaxConfig, RestaurantInfo } from '@/store/settingsStore';
+import { useSettingsStore, RestaurantInfo } from '@/store/settingsStore';
 import { cn } from '@/lib/utils';
 import { StaffManagement } from '@/components/features/settings/StaffManagement';
-
-const categoryIcons: Record<string, any> = {
-  kitchen: ChefHat,
-  ordering: ShoppingCart,
-  inventory: Package,
-  payments: CreditCard,
-  general: Cog,
-};
 
 const planBadgeColors: Record<string, string> = {
   starter: 'bg-gray-100 text-gray-700',
@@ -81,29 +50,17 @@ export function SettingsPage() {
     loadRestaurant,
     updateRestaurantInfo,
     uploadLogo,
-    features,
-    isLoadingFeatures,
-    loadFeatures,
-    toggleFeature,
-    taxes,
-    isLoadingTaxes,
-    loadTaxes,
-    addTax,
-    updateTax,
-    deleteTax,
+    updateRestaurantSettings,
     theme,
     setTheme,
     kdsTheme,
     setKdsTheme,
     currentPlan,
-    updateSubscriptionTier,
   } = useSettingsStore();
 
   const [activeTab, setActiveTab] = useState('general');
-  const [isTaxDialogOpen, setIsTaxDialogOpen] = useState(false);
-  const [editingTax, setEditingTax] = useState<TaxConfig | null>(null);
-  const [taxForm, setTaxForm] = useState<{ name: string; rate: string; appliesTo: TaxConfig['appliesTo'] }>({ name: '', rate: '', appliesTo: 'all' });
   const [isSaving, setIsSaving] = useState(false);
+  const [taxRate, setTaxRate] = useState<string>('0');
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   // Local state for restaurant info form
@@ -112,14 +69,13 @@ export function SettingsPage() {
   // Load data on mount
   useEffect(() => {
     loadRestaurant();
-    loadFeatures();
-    loadTaxes();
-  }, [loadRestaurant, loadFeatures, loadTaxes]);
+  }, [loadRestaurant]);
 
   // Sync restaurant form state when restaurantInfo loads
   useEffect(() => {
     if (restaurantInfo) {
       setRestaurantForm(restaurantInfo);
+      setTaxRate(restaurantInfo.taxRate?.toString() || '0');
     }
   }, [restaurantInfo]);
 
@@ -157,26 +113,10 @@ export function SettingsPage() {
     console.warn('Logo removal not implemented - needs backend support');
   };
 
-  // Group features by category
-  const featuresByCategory = features.length > 0 ? features.reduce((acc, feature) => {
-    if (!acc[feature.category]) {
-      acc[feature.category] = [];
-    }
-    acc[feature.category].push(feature);
-    return acc;
-  }, {} as Record<string, FeatureToggle[]>) : {};
-
-  const canEnableFeature = (feature: FeatureToggle) => {
-    if (!feature.requiresPlan) return true;
-    const planOrder = ['starter', 'professional', 'enterprise'];
-    const currentPlanIndex = planOrder.indexOf(currentPlan);
-    const requiredPlanIndex = planOrder.indexOf(feature.requiresPlan);
-    return currentPlanIndex >= requiredPlanIndex;
-  };
 
   const handleSaveRestaurantInfo = async () => {
     if (!restaurantForm) return;
-    
+
     setIsSaving(true);
     try {
       await updateRestaurantInfo(restaurantForm);
@@ -187,31 +127,27 @@ export function SettingsPage() {
     }
   };
 
-  const openTaxDialog = (tax?: TaxConfig) => {
-    if (tax) {
-      setEditingTax(tax);
-      setTaxForm({ name: tax.name, rate: tax.rate.toString(), appliesTo: tax.appliesTo });
-    } else {
-      setEditingTax(null);
-      setTaxForm({ name: '', rate: '', appliesTo: 'all' });
+  const handleSaveTaxRate = async () => {
+    const rate = parseFloat(taxRate);
+    if (isNaN(rate) || rate < 0) {
+      alert('Please enter a valid tax rate (0 or greater)');
+      return;
     }
-    setIsTaxDialogOpen(true);
-  };
-
-  const handleSaveTax = async () => {
-    const rate = parseFloat(taxForm.rate);
-    if (!taxForm.name || isNaN(rate)) return;
 
     try {
-      if (editingTax) {
-        await updateTax(editingTax.id, { name: taxForm.name, rate, appliesTo: taxForm.appliesTo });
-      } else {
-        await addTax({ name: taxForm.name, rate, enabled: true, appliesTo: taxForm.appliesTo });
-      }
-      setIsTaxDialogOpen(false);
-      setTaxForm({ name: '', rate: '', appliesTo: 'all' });
+      setIsSaving(true);
+      await updateRestaurantSettings({
+        operations: {
+          taxRate: rate
+        }
+      });
+      // Reload restaurant to get updated tax rate
+      await loadRestaurant();
     } catch (error) {
-      console.error('Failed to save tax:', error);
+      console.error('Failed to save tax rate:', error);
+      alert('Failed to save tax rate. Please try again.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -239,9 +175,9 @@ export function SettingsPage() {
             <Users className="h-4 w-4" />
             {t('settings.staff')}
           </TabsTrigger>
-          <TabsTrigger value="features" className="gap-2">
-            <ToggleLeft className="h-4 w-4" />
-            {t('settings.features')}
+          <TabsTrigger value="receipt" className="gap-2">
+            <Receipt className="h-4 w-4" />
+            Receipt Settings
           </TabsTrigger>
           <TabsTrigger value="taxes" className="gap-2">
             <Receipt className="h-4 w-4" />
@@ -270,162 +206,162 @@ export function SettingsPage() {
                 <CardDescription>{t('settings.basicDetails')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-              {/* Logo Upload */}
-              <div className="space-y-2">
-                <Label>{t('settings.logo')}</Label>
-                <div className="flex items-start gap-4">
-                  <div 
-                    className="relative w-24 h-24 border-2 border-dashed rounded-lg overflow-hidden cursor-pointer hover:border-primary transition-colors flex-shrink-0"
-                    onClick={() => logoInputRef.current?.click()}
-                  >
-                    {restaurantInfo?.logo ? (
-                      <>
-                        <img 
-                          src={restaurantInfo.logo} 
-                          alt="Logo" 
-                          className="w-full h-full object-contain"
-                        />
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="icon"
-                          className="absolute top-1 right-1 h-5 w-5"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveLogo();
-                          }}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                        <ImagePlus className="h-6 w-6 mb-1" />
-                        <span className="text-xs">Upload</span>
-                      </div>
-                    )}
+                {/* Logo Upload */}
+                <div className="space-y-2">
+                  <Label>{t('settings.logo')}</Label>
+                  <div className="flex items-start gap-4">
+                    <div
+                      className="relative w-24 h-24 border-2 border-dashed rounded-lg overflow-hidden cursor-pointer hover:border-primary transition-colors flex-shrink-0"
+                      onClick={() => logoInputRef.current?.click()}
+                    >
+                      {restaurantInfo?.logo ? (
+                        <>
+                          <img
+                            src={restaurantInfo.logo}
+                            alt="Logo"
+                            className="w-full h-full object-contain"
+                          />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            className="absolute top-1 right-1 h-5 w-5"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveLogo();
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                          <ImagePlus className="h-6 w-6 mb-1" />
+                          <span className="text-xs">Upload</span>
+                        </div>
+                      )}
+                    </div>
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleLogoUpload}
+                    />
+                    <div className="text-sm text-muted-foreground">
+                      <p className="font-medium text-foreground">{t('settings.uploadRestaurantLogo')}</p>
+                      <p>This will appear on receipts, the waiter app, and reports.</p>
+                      <p className="text-xs mt-1">{t('settings.recommendedSquareImage')}</p>
+                    </div>
                   </div>
-                  <input
-                    ref={logoInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleLogoUpload}
-                  />
-                  <div className="text-sm text-muted-foreground">
-                    <p className="font-medium text-foreground">{t('settings.uploadRestaurantLogo')}</p>
-                    <p>This will appear on receipts, the waiter app, and reports.</p>
-                    <p className="text-xs mt-1">{t('settings.recommendedSquareImage')}</p>
+                </div>
+
+                <Separator />
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Restaurant Name</Label>
+                    <Input
+                      id="name"
+                      value={restaurantForm?.name || ''}
+                      onChange={(e) => handleFieldChange('name', e.target.value)}
+                      disabled={!restaurantForm}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">{t('settings.phone')}</Label>
+                    <Input
+                      id="phone"
+                      value={restaurantForm?.phone || ''}
+                      onChange={(e) => handleFieldChange('phone', e.target.value)}
+                      disabled={!restaurantForm}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">{t('settings.email')}</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={restaurantForm?.email || ''}
+                      onChange={(e) => handleFieldChange('email', e.target.value)}
+                      disabled={!restaurantForm}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="website">Website</Label>
+                    <Input
+                      id="website"
+                      value={restaurantForm?.website || ''}
+                      onChange={(e) => handleFieldChange('website', e.target.value)}
+                      disabled={!restaurantForm}
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="address">{t('settings.address')}</Label>
+                    <Input
+                      id="address"
+                      value={restaurantForm?.address || ''}
+                      onChange={(e) => handleFieldChange('address', e.target.value)}
+                      disabled={!restaurantForm}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="currency">{t('settings.currency')}</Label>
+                    <Select
+                      value={restaurantForm?.currency || 'MMK'}
+                      onValueChange={(v) => handleFieldChange('currency', v)}
+                      disabled={!restaurantForm}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="MMK">MMK - Myanmar Kyat (Ks)</SelectItem>
+                        <SelectItem value="USD">USD - US Dollar ($)</SelectItem>
+                        <SelectItem value="EUR">EUR - Euro (€)</SelectItem>
+                        <SelectItem value="SGD">SGD - Singapore Dollar (S$)</SelectItem>
+                        <SelectItem value="THB">THB - Thai Baht (฿)</SelectItem>
+                        <SelectItem value="PHP">PHP - Philippine Peso (₱)</SelectItem>
+                        <SelectItem value="MYR">MYR - Malaysian Ringgit (RM)</SelectItem>
+                        <SelectItem value="IDR">IDR - Indonesian Rupiah (Rp)</SelectItem>
+                        <SelectItem value="VND">VND - Vietnamese Dong (₫)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="timezone">{t('settings.timezone')}</Label>
+                    <Select
+                      value={restaurantForm?.timezone || 'Asia/Yangon'}
+                      onValueChange={(v) => handleFieldChange('timezone', v)}
+                      disabled={!restaurantForm}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Asia/Yangon">Myanmar (MMT)</SelectItem>
+                        <SelectItem value="Asia/Bangkok">Bangkok (ICT)</SelectItem>
+                        <SelectItem value="Asia/Singapore">Singapore (SGT)</SelectItem>
+                        <SelectItem value="Asia/Manila">Manila (PHT)</SelectItem>
+                        <SelectItem value="Asia/Ho_Chi_Minh">Ho Chi Minh (ICT)</SelectItem>
+                        <SelectItem value="Asia/Jakarta">Jakarta (WIB)</SelectItem>
+                        <SelectItem value="Asia/Kuala_Lumpur">Kuala Lumpur (MYT)</SelectItem>
+                        <SelectItem value="Asia/Tokyo">Tokyo (JST)</SelectItem>
+                        <SelectItem value="America/New_York">Eastern Time (ET)</SelectItem>
+                        <SelectItem value="America/Los_Angeles">Pacific Time (PT)</SelectItem>
+                        <SelectItem value="Europe/London">London (GMT)</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
-              </div>
-
-              <Separator />
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Restaurant Name</Label>
-                  <Input
-                    id="name"
-                    value={restaurantForm?.name || ''}
-                    onChange={(e) => handleFieldChange('name', e.target.value)}
-                    disabled={!restaurantForm}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone">{t('settings.phone')}</Label>
-                  <Input
-                    id="phone"
-                    value={restaurantForm?.phone || ''}
-                    onChange={(e) => handleFieldChange('phone', e.target.value)}
-                    disabled={!restaurantForm}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">{t('settings.email')}</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={restaurantForm?.email || ''}
-                    onChange={(e) => handleFieldChange('email', e.target.value)}
-                    disabled={!restaurantForm}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="website">Website</Label>
-                  <Input
-                    id="website"
-                    value={restaurantForm?.website || ''}
-                    onChange={(e) => handleFieldChange('website', e.target.value)}
-                    disabled={!restaurantForm}
-                  />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="address">{t('settings.address')}</Label>
-                  <Input
-                    id="address"
-                    value={restaurantForm?.address || ''}
-                    onChange={(e) => handleFieldChange('address', e.target.value)}
-                    disabled={!restaurantForm}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="currency">{t('settings.currency')}</Label>
-                  <Select 
-                    value={restaurantForm?.currency || 'MMK'} 
-                    onValueChange={(v) => handleFieldChange('currency', v)}
-                    disabled={!restaurantForm}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="MMK">MMK - Myanmar Kyat (Ks)</SelectItem>
-                      <SelectItem value="USD">USD - US Dollar ($)</SelectItem>
-                      <SelectItem value="EUR">EUR - Euro (€)</SelectItem>
-                      <SelectItem value="SGD">SGD - Singapore Dollar (S$)</SelectItem>
-                      <SelectItem value="THB">THB - Thai Baht (฿)</SelectItem>
-                      <SelectItem value="PHP">PHP - Philippine Peso (₱)</SelectItem>
-                      <SelectItem value="MYR">MYR - Malaysian Ringgit (RM)</SelectItem>
-                      <SelectItem value="IDR">IDR - Indonesian Rupiah (Rp)</SelectItem>
-                      <SelectItem value="VND">VND - Vietnamese Dong (₫)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="timezone">{t('settings.timezone')}</Label>
-                  <Select 
-                    value={restaurantForm?.timezone || 'Asia/Yangon'} 
-                    onValueChange={(v) => handleFieldChange('timezone', v)}
-                    disabled={!restaurantForm}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Asia/Yangon">Myanmar (MMT)</SelectItem>
-                      <SelectItem value="Asia/Bangkok">Bangkok (ICT)</SelectItem>
-                      <SelectItem value="Asia/Singapore">Singapore (SGT)</SelectItem>
-                      <SelectItem value="Asia/Manila">Manila (PHT)</SelectItem>
-                      <SelectItem value="Asia/Ho_Chi_Minh">Ho Chi Minh (ICT)</SelectItem>
-                      <SelectItem value="Asia/Jakarta">Jakarta (WIB)</SelectItem>
-                      <SelectItem value="Asia/Kuala_Lumpur">Kuala Lumpur (MYT)</SelectItem>
-                      <SelectItem value="Asia/Tokyo">Tokyo (JST)</SelectItem>
-                      <SelectItem value="America/New_York">Eastern Time (ET)</SelectItem>
-                      <SelectItem value="America/Los_Angeles">Pacific Time (PT)</SelectItem>
-                      <SelectItem value="Europe/London">London (GMT)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button onClick={handleSaveRestaurantInfo} disabled={isSaving || !restaurantForm}>
-                <Save className="h-4 w-4 mr-2" />
-                {isSaving ? t('common.loading') : t('settings.saveChanges')}
-              </Button>
-            </CardFooter>
-          </Card>
+              </CardContent>
+              <CardFooter>
+                <Button onClick={handleSaveRestaurantInfo} disabled={isSaving || !restaurantForm}>
+                  <Save className="h-4 w-4 mr-2" />
+                  {isSaving ? t('common.loading') : t('settings.saveChanges')}
+                </Button>
+              </CardFooter>
+            </Card>
           )}
 
           {/* Subscription Plan */}
@@ -440,8 +376,8 @@ export function SettingsPage() {
                 {/* Starter Plan */}
                 <div className={cn(
                   "p-5 border-2 rounded-lg transition-all",
-                  currentPlan === 'starter' 
-                    ? "border-primary bg-primary/5" 
+                  currentPlan === 'starter'
+                    ? "border-primary bg-primary/5"
                     : "border-muted"
                 )}>
                   <div className="flex items-center justify-between mb-3">
@@ -450,8 +386,8 @@ export function SettingsPage() {
                   </div>
                   <p className="text-2xl font-bold mb-1">{t('settings.contactSales')}</p>
                   <p className="text-sm text-muted-foreground mb-4">{t('settings.perfectForSmall')}</p>
-                  <Button 
-                    variant={currentPlan === 'starter' ? "secondary" : "outline"} 
+                  <Button
+                    variant={currentPlan === 'starter' ? "secondary" : "outline"}
                     className="w-full mb-4"
                     onClick={() => window.open('mailto:sales@smartrestaurant.com?subject=Starter Plan Inquiry', '_blank')}
                   >
@@ -477,8 +413,8 @@ export function SettingsPage() {
                 {/* Professional Plan */}
                 <div className={cn(
                   "p-5 border-2 rounded-lg transition-all relative",
-                  currentPlan === 'professional' 
-                    ? "border-primary bg-primary/5" 
+                  currentPlan === 'professional'
+                    ? "border-primary bg-primary/5"
                     : "border-blue-500"
                 )}>
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
@@ -490,8 +426,8 @@ export function SettingsPage() {
                   </div>
                   <p className="text-2xl font-bold mb-1">{t('settings.contactSales')}</p>
                   <p className="text-sm text-muted-foreground mb-4">{t('settings.bestForGrowing')}</p>
-                  <Button 
-                    variant={currentPlan === 'professional' ? "secondary" : "default"} 
+                  <Button
+                    variant={currentPlan === 'professional' ? "secondary" : "default"}
                     className="w-full mb-4"
                     onClick={() => window.open('mailto:sales@smartrestaurant.com?subject=Professional Plan Inquiry', '_blank')}
                   >
@@ -517,8 +453,8 @@ export function SettingsPage() {
                 {/* Enterprise Plan */}
                 <div className={cn(
                   "p-5 border-2 rounded-lg transition-all",
-                  currentPlan === 'enterprise' 
-                    ? "border-primary bg-primary/5" 
+                  currentPlan === 'enterprise'
+                    ? "border-primary bg-primary/5"
                     : "border-purple-500"
                 )}>
                   <div className="flex items-center justify-between mb-3">
@@ -530,8 +466,8 @@ export function SettingsPage() {
                   </div>
                   <p className="text-2xl font-bold mb-1">{t('settings.contactSales')}</p>
                   <p className="text-sm text-muted-foreground mb-4">{t('settings.forLargeChains')}</p>
-                  <Button 
-                    variant={currentPlan === 'enterprise' ? "secondary" : "outline"} 
+                  <Button
+                    variant={currentPlan === 'enterprise' ? "secondary" : "outline"}
                     className="w-full mb-4 border-purple-500 text-purple-700 hover:bg-purple-50"
                     onClick={() => window.open('mailto:sales@smartrestaurant.com?subject=Enterprise Plan Inquiry', '_blank')}
                   >
@@ -575,33 +511,6 @@ export function SettingsPage() {
                   </Button>
                 </div>
               </div>
-
-              {/* Switch Subscription Tier */}
-              <div className="text-center text-sm text-muted-foreground mb-4">
-                <p><strong>Switch Subscription Tier:</strong> Change your subscription plan (for development/testing)</p>
-              </div>
-              <div className="grid gap-2 md:grid-cols-3">
-                {(['starter', 'professional', 'enterprise'] as const).map((plan) => (
-                  <Button
-                    key={plan}
-                    variant={currentPlan === plan ? "default" : "outline"}
-                    size="sm"
-                    onClick={async () => {
-                      if (currentPlan !== plan) {
-                        try {
-                          await updateSubscriptionTier(plan);
-                        } catch (error) {
-                          console.error('Failed to update subscription tier:', error);
-                        }
-                      }
-                    }}
-                    disabled={currentPlan === plan}
-                  >
-                    {currentPlan === plan && <Check className="h-4 w-4 mr-1" />}
-                    Switch to {plan.charAt(0).toUpperCase() + plan.slice(1)}
-                  </Button>
-                ))}
-              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -611,151 +520,223 @@ export function SettingsPage() {
           <StaffManagement />
         </TabsContent>
 
-        {/* Feature Toggles */}
-        <TabsContent value="features" className="space-y-6">
-          {isLoadingFeatures ? (
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        {/* Receipt Settings */}
+        <TabsContent value="receipt" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Receipt Configuration</CardTitle>
+              <CardDescription>Configure how receipts are displayed and printed</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Receipt Header */}
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-base font-medium">Receipt Header</Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Configure what information appears at the top of receipts
+                  </p>
                 </div>
-              </CardContent>
-            </Card>
-          ) : (
-            Object.entries(featuresByCategory).map(([category, categoryFeatures]) => {
-            const Icon = categoryIcons[category] || Settings;
-            return (
-              <Card key={category}>
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <Icon className="h-5 w-5 text-primary" />
-                    <CardTitle className="capitalize">{category}</CardTitle>
+                <div className="space-y-3 pl-4">
+                  <div className="flex items-center justify-between">
+                    <Label>Show Restaurant Name</Label>
+                    <Switch defaultChecked={true} />
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {categoryFeatures.map((feature) => {
-                    const canEnable = canEnableFeature(feature);
-                    return (
-                      <div
-                        key={feature.id}
-                        className={cn(
-                          "flex items-start justify-between p-4 border rounded-lg",
-                          !canEnable && "opacity-60 bg-muted/50"
-                        )}
-                      >
-                        <div className="flex-1 pr-4">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-medium">{feature.name}</h4>
-                            {feature.requiresPlan && (
-                              <Badge variant="outline" className={planBadgeColors[feature.requiresPlan]}>
-                                {feature.requiresPlan === 'enterprise' && <Crown className="h-3 w-3 mr-1" />}
-                                {feature.requiresPlan}
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {feature.description}
-                          </p>
-                          {!canEnable && (
-                            <p className="text-xs text-orange-600 mt-2 flex items-center gap-1">
-                              <Lock className="h-3 w-3" />
-                              Upgrade to {feature.requiresPlan} plan to enable
-                            </p>
-                          )}
-                        </div>
-                        <Switch
-                          checked={feature.enabled && canEnable}
-                          onCheckedChange={async () => {
-                            if (canEnable) {
-                              await toggleFeature(feature.id);
-                            }
-                          }}
-                          disabled={!canEnable}
-                        />
-                      </div>
-                    );
-                  })}
-                </CardContent>
-              </Card>
-            );
-          })
-          )}
+                  <div className="flex items-center justify-between">
+                    <Label>Show Address</Label>
+                    <Switch defaultChecked={true} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label>Show Phone Number</Label>
+                    <Switch defaultChecked={true} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Custom Header Text (optional)</Label>
+                    <Input placeholder="Enter custom text to display at the top of receipts" />
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Receipt Footer */}
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-base font-medium">Receipt Footer</Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Configure what information appears at the bottom of receipts
+                  </p>
+                </div>
+                <div className="space-y-3 pl-4">
+                  <div className="space-y-2">
+                    <Label>Thank You Message</Label>
+                    <Input placeholder="Thank you for your visit!" defaultValue="Thank you for your visit!" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Website (optional)</Label>
+                    <Input placeholder="www.example.com" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Social Media (optional)</Label>
+                    <Input placeholder="@restaurant" />
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Receipt Format */}
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-base font-medium">Receipt Format</Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Control what details appear on receipts
+                  </p>
+                </div>
+                <div className="space-y-3 pl-4">
+                  <div className="flex items-center justify-between">
+                    <Label>Show Tax Breakdown</Label>
+                    <Switch defaultChecked={true} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label>Show Item Details</Label>
+                    <Switch defaultChecked={true} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label>Show Modifiers/Add-ons</Label>
+                    <Switch defaultChecked={true} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label>Show Table Number</Label>
+                    <Switch defaultChecked={true} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label>Show Waiter Name</Label>
+                    <Switch defaultChecked={true} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Receipt Width</Label>
+                    <Select defaultValue="80mm">
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="58mm">58mm (Standard)</SelectItem>
+                        <SelectItem value="80mm">80mm (Wide)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label>Auto-print Receipt on Payment</Label>
+                    <Switch defaultChecked={false} />
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Printer Settings */}
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-base font-medium">Printer Settings</Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Configure receipt printer
+                  </p>
+                </div>
+                <div className="space-y-3 pl-4">
+                  <div className="flex items-center justify-between">
+                    <Label>Enable Receipt Printer</Label>
+                    <Switch defaultChecked={false} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Printer Name</Label>
+                    <Input placeholder="Receipt Printer" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Printer IP Address (optional)</Label>
+                    <Input placeholder="192.168.1.100" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4">
+                <Button onClick={async () => {
+                  // TODO: Save receipt settings
+                  setIsSaving(true);
+                  try {
+                    // await updateRestaurantSettings({ receipt: receiptSettings });
+                    setIsSaving(false);
+                  } catch (error) {
+                    console.error('Failed to save receipt settings:', error);
+                    setIsSaving(false);
+                  }
+                }}>
+                  <Save className="mr-2 h-4 w-4" />
+                  {isSaving ? 'Saving...' : 'Save Receipt Settings'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Tax Configuration */}
         <TabsContent value="taxes" className="space-y-6">
-          {isLoadingTaxes ? (
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Tax Configuration</CardTitle>
-                <CardDescription>Configure taxes applied to orders</CardDescription>
-              </div>
-              <Button onClick={() => openTaxDialog()}>
-                Add Tax
-              </Button>
+          <Card>
+            <CardHeader>
+              <CardTitle>Tax Settings</CardTitle>
+              <CardDescription>Configure tax rate and application for orders</CardDescription>
             </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Rate</TableHead>
-                    <TableHead>Applies To</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="w-[100px]"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {taxes.map((tax) => (
-                    <TableRow key={tax.id}>
-                      <TableCell className="font-medium">{tax.name}</TableCell>
-                      <TableCell>{tax.rate}%</TableCell>
-                      <TableCell className="capitalize">{tax.appliesTo}</TableCell>
-                      <TableCell>
-                        <Switch
-                          checked={tax.enabled}
-                          onCheckedChange={() => updateTax(tax.id, { enabled: !tax.enabled })}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={() => openTaxDialog(tax)}
-                          >
-                            Edit
-                          </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="text-red-600"
-                            onClick={async () => {
-                              if (confirm(`Are you sure you want to delete ${tax.name}? This action cannot be undone.`)) {
-                                await deleteTax(tax.id);
-                              }
-                            }}
-                          >
-                            Delete
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              </CardContent>
-            </Card>
-          )}
+            <CardContent className="space-y-6">
+              {/* Tax Rate */}
+              <div className="space-y-2">
+                <Label htmlFor="tax-rate">Tax Rate (%)</Label>
+                <Input
+                  id="tax-rate"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={taxRate}
+                  onChange={(e) => setTaxRate(e.target.value)}
+                  placeholder="e.g., 8.0"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Enter the tax rate as a percentage (e.g., 8 for 8%)
+                </p>
+              </div>
+
+              <Separator />
+
+              {/* Auto-Apply Tax Setting */}
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div>
+                  <Label className="text-base font-medium">Automatically apply taxes to orders</Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    When enabled, the tax rate will be automatically added to all orders. When disabled, taxes will not be applied.
+                  </p>
+                </div>
+                <Switch
+                  checked={restaurantInfo?.autoApplyTax !== false}
+                  onCheckedChange={async (checked) => {
+                    try {
+                      await updateRestaurantSettings({
+                        operations: {
+                          autoApplyTax: checked
+                        }
+                      });
+                    } catch (error) {
+                      console.error('Failed to update tax setting:', error);
+                    }
+                  }}
+                />
+              </div>
+
+              <div className="pt-4">
+                <Button onClick={handleSaveTaxRate} disabled={isSaving}>
+                  <Save className="mr-2 h-4 w-4" />
+                  {isSaving ? 'Saving...' : 'Save Tax Settings'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Appearance */}
@@ -778,8 +759,8 @@ export function SettingsPage() {
                       key={option.value}
                       className={cn(
                         "flex flex-col items-center gap-2 p-4 border-2 rounded-lg cursor-pointer transition-all",
-                        theme === option.value 
-                          ? "border-primary bg-primary/5" 
+                        theme === option.value
+                          ? "border-primary bg-primary/5"
                           : "border-muted hover:border-primary/50"
                       )}
                       onClick={() => setTheme(option.value)}
@@ -807,8 +788,8 @@ export function SettingsPage() {
                       key={option.value}
                       className={cn(
                         "flex flex-col items-center gap-2 p-4 border-2 rounded-lg cursor-pointer transition-all",
-                        kdsTheme === option.value 
-                          ? "border-primary bg-primary/5" 
+                        kdsTheme === option.value
+                          ? "border-primary bg-primary/5"
                           : "border-muted hover:border-primary/50"
                       )}
                       onClick={() => setKdsTheme(option.value)}
@@ -824,61 +805,6 @@ export function SettingsPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Tax Dialog */}
-      <Dialog open={isTaxDialogOpen} onOpenChange={setIsTaxDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingTax ? 'Edit Tax' : t('settings.addTax')}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="tax-name">{t('settings.taxName')}</Label>
-              <Input
-                id="tax-name"
-                value={taxForm.name}
-                onChange={(e) => setTaxForm({ ...taxForm, name: e.target.value })}
-                placeholder="e.g., Sales Tax"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tax-rate">{t('settings.taxRate')}</Label>
-              <Input
-                id="tax-rate"
-                type="number"
-                step="0.01"
-                value={taxForm.rate}
-                onChange={(e) => setTaxForm({ ...taxForm, rate: e.target.value })}
-                placeholder="e.g., 8.875"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Applies To</Label>
-              <Select 
-                value={taxForm.appliesTo} 
-                onValueChange={(v: any) => setTaxForm({ ...taxForm, appliesTo: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Items</SelectItem>
-                  <SelectItem value="food">Food Only</SelectItem>
-                  <SelectItem value="beverages">Beverages Only</SelectItem>
-                  <SelectItem value="alcohol">Alcohol Only</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsTaxDialogOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button onClick={handleSaveTax}>
-              {editingTax ? t('settings.saveChanges') : t('settings.addTax')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

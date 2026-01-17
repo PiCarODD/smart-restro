@@ -51,59 +51,6 @@ class TenantController {
     }
   }
 
-  /**
-   * Update current user's tenant subscription tier
-   * PUT /api/tenant/me/subscription
-   * Only allowed for tenant_admin or super_admin
-   */
-  async updateSubscription(req, res, next) {
-    try {
-      if (!req.tenantId) {
-        throw new NotFoundError('Tenant');
-      }
-
-      // Only tenant_admin, super_admin, or admin can change subscription tier
-      if (!['tenant_admin', 'super_admin', 'admin'].includes(req.user.role)) {
-        throw new AuthorizationError('Only admins can update subscription tier');
-      }
-
-      const { subscriptionTier } = req.body;
-
-      // Validate subscription tier
-      const validTiers = ['starter', 'professional', 'enterprise'];
-      if (!validTiers.includes(subscriptionTier)) {
-        throw new ValidationError('Invalid subscription tier. Must be one of: starter, professional, enterprise');
-      }
-
-      const tenant = await Tenant.findOne({
-        where: { id: req.tenantId }
-      });
-
-      if (!tenant) {
-        throw new NotFoundError('Tenant');
-      }
-
-      // Update subscription tier and adjust limits based on tier
-      const limits = getLimitsForTier(subscriptionTier);
-      
-      await tenant.update({
-        subscriptionTier,
-        maxUsers: limits.maxUsers,
-        maxMenuItems: limits.maxMenuItems,
-        maxRestaurants: limits.maxRestaurants,
-      });
-
-      // Reload to get updated data
-      await tenant.reload();
-
-      res.json({
-        message: 'Subscription tier updated successfully',
-        tenant
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
 }
 
 module.exports = new TenantController();

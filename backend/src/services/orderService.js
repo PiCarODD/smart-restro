@@ -1,4 +1,4 @@
-const { Order, OrderItem, MenuItem, Tax, Restaurant, Table } = require('../models');
+const { Order, OrderItem, MenuItem, Restaurant, Table } = require('../models');
 const { NotFoundError } = require('../utils/errors');
 const { sequelize } = require('../models');
 const inventoryService = require('./inventoryService');
@@ -49,41 +49,22 @@ class OrderService {
     }
 
     // Calculate subtotal from items
+    // Note: item.totalPrice already includes modifiers, so we don't add modifiersTotal separately
     let subtotal = 0;
     for (const item of order.orderItems) {
       subtotal += parseFloat(item.totalPrice || 0);
-      subtotal += parseFloat(item.modifiersTotal || 0);
     }
 
-    // Get all taxes for the restaurant to check if any exist
-    const allTaxes = await Tax.findAll({
-      where: {
-        restaurantId: order.restaurantId
-      }
-    });
+    // Check if auto-apply tax is enabled (default: false - tax not applied by default)
+    const autoApplyTax = order.restaurant?.settings?.operations?.autoApplyTax === true;
 
-    // Get active taxes only
-    const activeTaxes = allTaxes.filter(tax => tax.isActive === true);
-
-    // Calculate tax amount based on active taxes
+    // Calculate tax amount using simple tax rate from restaurant settings
     let taxAmount = 0;
-    if (activeTaxes.length > 0) {
-      // Apply all active taxes to the subtotal
-      // In the future, we can filter by appliesTo (all, food, beverage, alcohol)
-      for (const tax of activeTaxes) {
-        if (tax.type === 'percentage') {
-          taxAmount += (subtotal * parseFloat(tax.rate)) / 100;
-        } else if (tax.type === 'fixed') {
-          taxAmount += parseFloat(tax.rate);
-        }
-      }
-    } else if (allTaxes.length === 0) {
-      // Only fallback to restaurant settings if no tax records exist at all
-      // This is for backward compatibility when tax system wasn't implemented
+    if (autoApplyTax) {
       const taxRate = order.restaurant?.settings?.operations?.taxRate || 0;
       taxAmount = (subtotal * taxRate) / 100;
     }
-    // If tax records exist but all are disabled (isActive: false), taxAmount remains 0
+    // If autoApplyTax is false, taxAmount remains 0
 
     // Get service charge rate
     const serviceChargeRate = order.restaurant?.settings?.operations?.serviceCharge || 0;
@@ -214,6 +195,9 @@ class OrderService {
     switch (newStatus) {
       case 'confirmed':
         statusUpdates.confirmedAt = now;
+        break;
+      case 'preparing':
+        statusUpdates.confirmedAt = order.confirmedAt || now; // Set confirmedAt if not already set
         break;
       case 'ready':
         statusUpdates.readyAt = now;

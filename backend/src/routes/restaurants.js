@@ -8,18 +8,20 @@ const { uploadLogo } = require('../middleware/upload');
 // All routes require authentication
 router.use(authMiddleware.authenticate);
 
-// Allow tenant_admin, admin, manager to access
-router.use(authMiddleware.authorize('tenant_admin', 'admin', 'manager'));
+// Get current user's restaurant - allow waiters/servers to read their restaurant info
+router.get('/me', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'server'), restaurantController.getCurrent);
 
-// Get current user's restaurant (no ID in URL - uses JWT token)
-router.get('/me', restaurantController.getCurrent);
-router.put('/me', restaurantValidator.validateUpdate, restaurantController.updateCurrent);
-router.get('/me/settings', restaurantController.getCurrentSettings);
-router.put('/me/settings', restaurantValidator.validateSettings, restaurantController.updateCurrentSettings);
-router.put('/me/logo', uploadLogo, restaurantController.uploadCurrentLogo);
+// Write routes - only allow tenant_admin, admin, manager
+router.put('/me', authMiddleware.authorize('tenant_admin', 'admin', 'manager'), restaurantValidator.validateUpdate, restaurantController.updateCurrent);
+router.get('/me/settings', authMiddleware.authorize('tenant_admin', 'admin', 'manager', 'waiter', 'server'), restaurantController.getCurrentSettings);
+router.put('/me/settings', authMiddleware.authorize('tenant_admin', 'admin', 'manager'), restaurantValidator.validateSettings, restaurantController.updateCurrentSettings);
+router.put('/me/logo', authMiddleware.authorize('tenant_admin', 'admin', 'manager'), uploadLogo, restaurantController.uploadCurrentLogo);
+
+// Create restaurant - only tenant_admin, admin, manager
+router.post('/', authMiddleware.authorize('tenant_admin', 'admin', 'manager'), restaurantController.create);
 
 // List restaurants (for tenant_admin - can see all restaurants in tenant)
-router.get('/', restaurantController.list);
+router.get('/', authMiddleware.authorize('tenant_admin', 'admin', 'manager'), restaurantController.list);
 
 module.exports = router;
 

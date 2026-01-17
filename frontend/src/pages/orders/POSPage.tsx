@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { useNavigationStore } from '@/store/navigationStore';
 import { ArrowLeft, Minus, Plus, Send, X, Users } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -20,27 +21,24 @@ import { useOrderStore } from '@/store/orderStore';
 import { useMenuStore } from '@/store/menuStore';
 import { useTableStore } from '@/store/tableStore';
 import { useAuthStore } from '@/store/authStore';
-import { useSettingsStore } from '@/store/settingsStore';
 import { MenuItem, OrderItem } from '@/types';
 import { formatCurrency } from '@/lib/utils';
 import { ModifierDialog } from '@/components/features/pos/ModifierDialog';
 
 export function POSPage() {
-  const { tableId } = useParams<{ tableId: string }>();
-  const navigate = useNavigate();
-  
+  const { t } = useTranslation();
+  const { pageParams, navigate } = useNavigationStore();
+  const tableId = pageParams.tableId;
+
   const { user } = useAuthStore();
   const { tables, updateTableStatus } = useTableStore();
   const { categories, menuItems, loadCategories, loadMenuItems } = useMenuStore();
-  const { taxes } = useSettingsStore();
-  const { 
-    currentOrder, 
-    createOrder, 
+  const {
+    currentOrder,
+    createOrder,
     setCurrentOrder,
     getActiveOrderByTable,
     addItemToOrder,
-    updateOrderItem,
-    removeOrderItem,
     updateOrderStatus,
     loadOrders,
     calculateOrderTotals,
@@ -108,7 +106,7 @@ export function POSPage() {
     if (isGuestDialogOpen) {
       return;
     }
-    
+
     if (!pendingOrderInfo && !currentOrder) {
       if (tableId && table) {
         setPendingOrderInfo({
@@ -122,10 +120,10 @@ export function POSPage() {
         return;
       }
     }
-    
+
     const hasVariants = item.variants && item.variants.length > 0;
     const hasModifiers = item.modifiers && item.modifiers.length > 0;
-    
+
     if (hasVariants || hasModifiers) {
       setSelectedItem(item);
       setIsModifierOpen(true);
@@ -143,21 +141,21 @@ export function POSPage() {
       totalPrice: item.basePrice,
       modifiers: [],
     };
-    
+
     setCartItems(prev => [...prev, itemData]);
   };
 
   const handleAddWithModifiers = (
-    item: MenuItem, 
+    item: MenuItem,
     quantity: number,
-    variant: { name: string; price: number } | null, 
+    variant: { name: string; price: number } | null,
     selectedModifiers: { name: string; price: number }[],
     notes: string
   ) => {
     const unitPrice = variant?.price || item.basePrice;
     const modifiersTotal = selectedModifiers.reduce((sum, m) => sum + m.price, 0);
     const totalUnitPrice = unitPrice + modifiersTotal;
-    
+
     const itemData: Omit<OrderItem, 'id' | 'status'> = {
       menuItemId: item.id,
       name: item.name,
@@ -165,10 +163,10 @@ export function POSPage() {
       unitPrice: totalUnitPrice,
       totalPrice: totalUnitPrice * quantity,
       variant: variant?.name,
-      modifiers: selectedModifiers.map(m => m.name),
+      modifiers: selectedModifiers.map(m => ({ name: m.name, price: m.price })),
       notes: notes || undefined,
     };
-    
+
     setCartItems(prev => [...prev, itemData]);
     setIsModifierOpen(false);
     setSelectedItem(null);
@@ -179,17 +177,17 @@ export function POSPage() {
       const updated = [...prev];
       const item = updated[index];
       const newQuantity = item.quantity + delta;
-      
+
       if (newQuantity <= 0) {
         return updated.filter((_, i) => i !== index);
       }
-      
+
       updated[index] = {
         ...item,
         quantity: newQuantity,
         totalPrice: item.unitPrice * newQuantity,
       };
-      
+
       return updated;
     });
   };
@@ -200,7 +198,7 @@ export function POSPage() {
 
   const handleSendToKitchen = async () => {
     if (cartItems.length === 0) return;
-    
+
     if (!pendingOrderInfo && !tableId || !table) {
       return;
     }
@@ -237,7 +235,7 @@ export function POSPage() {
       setCartItems([]);
       setPendingOrderInfo(null);
       setIsSendDialogOpen(false);
-      navigate('/orders');
+      navigate('orders');
     } catch (error) {
       // Handle error (you can add toast notification here)
     }
@@ -248,7 +246,7 @@ export function POSPage() {
       <div className="flex items-center justify-center h-[60vh]">
         <div className="text-center">
           <p className="text-muted-foreground mb-4">Table not found</p>
-          <Button onClick={() => navigate('/tables')}>Back to Tables</Button>
+          <Button onClick={() => navigate('tables')}>Back to Tables</Button>
         </div>
       </div>
     );
@@ -260,20 +258,20 @@ export function POSPage() {
       <div className="flex-1 flex flex-col">
         {/* Header */}
         <div className="flex items-center gap-4 mb-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/tables')}>
+          <Button variant="ghost" size="icon" onClick={() => navigate('tables')}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold">Table {table.tableNumber}</h1>
+            <h1 className="text-2xl font-bold">{t('waiter.table')} {table.tableNumber}</h1>
             <p className="text-sm text-muted-foreground">
-              {pendingOrderInfo ? `New Order • ${pendingOrderInfo.guestCount} guest${pendingOrderInfo.guestCount > 1 ? 's' : ''}` : 'New Order'}
+              {pendingOrderInfo ? `${t('waiter.newOrder')} • ${pendingOrderInfo.guestCount} ${pendingOrderInfo.guestCount > 1 ? t('common.guests') : t('common.guest')}` : t('waiter.newOrder')}
             </p>
           </div>
         </div>
 
         {/* Search */}
         <Input
-          placeholder="Search menu items..."
+          placeholder={t('waiter.searchMenuItems')}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="mb-4"
@@ -281,13 +279,13 @@ export function POSPage() {
 
         {/* Categories */}
         <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
-          <Button
-            variant={selectedCategory === 'all' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setSelectedCategory('all')}
-          >
-            All
-          </Button>
+            <Button
+              variant={selectedCategory === 'all' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setSelectedCategory('all')}
+            >
+              {t('common.all')}
+            </Button>
           {categories.filter(c => c.isActive).map(category => (
             <Button
               key={category.id}
@@ -306,15 +304,15 @@ export function POSPage() {
           {menuItems.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center text-muted-foreground">
-                <p className="mb-2">No menu items found</p>
-                <p className="text-sm">Menu items will appear here once loaded</p>
+                <p className="mb-2">{t('waiter.noMenuItemsFound')}</p>
+                <p className="text-sm">{t('waiter.menuItemsWillAppear')}</p>
               </div>
             </div>
           ) : filteredItems.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center text-muted-foreground">
-                <p className="mb-2">No items match your search</p>
-                <p className="text-sm">Try a different category or search term</p>
+                <p className="mb-2">{t('waiter.noItemsMatchSearch')}</p>
+                <p className="text-sm">{t('waiter.tryDifferentCategory')}</p>
               </div>
             </div>
           ) : (
@@ -338,7 +336,7 @@ export function POSPage() {
                       <span className="font-bold">{formatCurrency(item.basePrice)}</span>
                       {item.variants && item.variants.length > 0 && (
                         <Badge variant="secondary" className="text-xs">
-                          {item.variants.length} sizes
+                          {t('waiter.sizesBadge', { count: item.variants.length })}
                         </Badge>
                       )}
                     </div>
@@ -354,9 +352,9 @@ export function POSPage() {
       <Card className="w-96 flex flex-col">
         <div className="p-4 border-b">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Current Order</h2>
+            <h2 className="font-semibold">{t('waiter.currentOrder')}</h2>
             {cartItems.length > 0 && (
-              <Badge>{cartItems.length} items</Badge>
+              <Badge>{cartItems.length} {t('common.items')}</Badge>
             )}
           </div>
         </div>
@@ -365,8 +363,8 @@ export function POSPage() {
         <ScrollArea className="flex-1 p-4">
           {cartItems.length === 0 ? (
             <div className="text-center text-muted-foreground py-8">
-              <p>{pendingOrderInfo ? 'Select items to add to order' : 'No items yet'}</p>
-              <p className="text-sm">Click on items to add them</p>
+              <p>{pendingOrderInfo ? t('waiter.selectItemsToAdd') : t('waiter.noItemsYet')}</p>
+              <p className="text-sm">{t('waiter.clickItemsToAdd')}</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -379,11 +377,20 @@ export function POSPage() {
                     )}
                     {item.modifiers && item.modifiers.length > 0 && (
                       <p className="text-xs text-muted-foreground">
-                        {item.modifiers.join(', ')}
+                        {item.modifiers.map((mod, idx) => {
+                          const modName = typeof mod === 'string' ? mod : mod.name;
+                          const modPrice = typeof mod === 'string' ? 0 : (mod.price || 0);
+                          return (
+                            <span key={idx}>
+                              {modName} {modPrice > 0 && `(+${formatCurrency(modPrice)})`}
+                              {idx < item.modifiers.length - 1 && ', '}
+                            </span>
+                          );
+                        })}
                       </p>
                     )}
                     {item.notes && (
-                      <p className="text-xs text-blue-600">Note: {item.notes}</p>
+                      <p className="text-xs text-blue-600">{t('waiter.note')}: {item.notes}</p>
                     )}
                     <p className="text-sm font-medium mt-1">
                       {formatCurrency(item.totalPrice)}
@@ -428,34 +435,17 @@ export function POSPage() {
 
         {/* Order Totals */}
         {cartItems.length > 0 && (() => {
-          const totals = calculateOrderTotals(cartItems);
-          const activeTaxes = taxes.filter(tax => tax.enabled);
-          
+          const totals = calculateOrderTotals(cartItems as any);
+
           return (
             <div className="p-4 border-t space-y-2">
               <div className="flex justify-between text-sm">
-                <span>Subtotal</span>
+                <span>{t('common.subtotal')}</span>
                 <span>{formatCurrency(totals.subtotal)}</span>
               </div>
-              {activeTaxes.length > 0 ? (
-                activeTaxes.map((tax) => {
-                  const taxAmount = (totals.subtotal * tax.rate) / 100;
-                  return (
-                    <div key={tax.id} className="flex justify-between text-sm text-muted-foreground">
-                      <span>{tax.name} ({tax.rate}%)</span>
-                      <span>{formatCurrency(taxAmount)}</span>
-                    </div>
-                  );
-                })
-              ) : totals.tax > 0 ? (
-                <div className="flex justify-between text-sm text-muted-foreground">
-                  <span>Tax</span>
-                  <span>{formatCurrency(totals.tax)}</span>
-                </div>
-              ) : null}
               <Separator />
               <div className="flex justify-between font-bold">
-                <span>Total</span>
+                <span>{t('common.total')}</span>
                 <span>{formatCurrency(totals.total)}</span>
               </div>
             </div>
@@ -464,14 +454,14 @@ export function POSPage() {
 
         {/* Actions */}
         <div className="p-4 border-t space-y-2">
-          <Button 
-            className="w-full" 
+          <Button
+            className="w-full"
             size="lg"
             disabled={cartItems.length === 0}
             onClick={() => setIsSendDialogOpen(true)}
           >
             <Send className="mr-2 h-4 w-4" />
-            Send to Kitchen
+            {t('waiter.sendToKitchen')}
           </Button>
         </div>
       </Card>
@@ -487,12 +477,12 @@ export function POSPage() {
       )}
 
       {/* Guest Count Dialog */}
-      <Dialog 
-        open={isGuestDialogOpen} 
+      <Dialog
+        open={isGuestDialogOpen}
         onOpenChange={(open) => {
           if (!open && !currentOrder) {
             // If dialog is closed and no order exists, navigate back to tables
-            navigate('/tables');
+            navigate('tables');
           } else {
             setIsGuestDialogOpen(open);
           }
@@ -500,9 +490,9 @@ export function POSPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Start New Order</DialogTitle>
+            <DialogTitle>{t('waiter.startNewOrder')}</DialogTitle>
             <DialogDescription>
-              Enter the number of guests for Table {table?.tableNumber}
+              {t('waiter.enterNumberOfGuests', { tableNumber: table?.tableNumber })}
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center justify-center gap-4 py-6">
@@ -526,11 +516,11 @@ export function POSPage() {
             </Button>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => navigate('/tables')}>
-              Cancel
+            <Button variant="outline" onClick={() => navigate('tables')}>
+              {t('common.cancel')}
             </Button>
             <Button onClick={handleStartOrder} disabled={!tableId || !table || !!currentOrder}>
-              Start Order
+              {t('waiter.startOrder')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -540,9 +530,9 @@ export function POSPage() {
       <Dialog open={isSendDialogOpen} onOpenChange={setIsSendDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Send to Kitchen?</DialogTitle>
+            <DialogTitle>{t('waiter.sendToKitchenConfirm')}</DialogTitle>
             <DialogDescription>
-              This will send {cartItems.length} item(s) to the kitchen for preparation.
+              {t('waiter.sendToKitchenDescription', { count: cartItems.length })}
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
@@ -555,18 +545,18 @@ export function POSPage() {
               ))}
               <Separator className="my-2" />
               <div className="flex justify-between font-bold">
-                <span>Total</span>
-                <span>{formatCurrency(calculateOrderTotals(cartItems).total)}</span>
+                <span>{t('common.total')}</span>
+                <span>{formatCurrency(calculateOrderTotals(cartItems as any).total)}</span>
               </div>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsSendDialogOpen(false)}>
-              Continue Editing
+              {t('waiter.continueEditing')}
             </Button>
             <Button onClick={handleSendToKitchen}>
               <Send className="mr-2 h-4 w-4" />
-              Send to Kitchen
+              {t('waiter.sendToKitchen')}
             </Button>
           </DialogFooter>
         </DialogContent>

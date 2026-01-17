@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Minus, Plus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ interface ModifierDialogProps {
 }
 
 export function ModifierDialog({ open, onOpenChange, item, onAdd }: ModifierDialogProps) {
+  const { t } = useTranslation();
   const [quantity, setQuantity] = useState(1);
   const [selectedVariant, setSelectedVariant] = useState<MenuVariant | null>(
     item.variants.length > 0 ? item.variants[0] : null
@@ -76,7 +78,7 @@ export function ModifierDialog({ open, onOpenChange, item, onAdd }: ModifierDial
         <div className="space-y-6 py-4">
           {/* Quantity */}
           <div className="flex items-center justify-between">
-            <Label>Quantity</Label>
+            <Label>{t('common.quantity')}</Label>
             <div className="flex items-center gap-3">
               <Button
                 variant="outline"
@@ -99,7 +101,7 @@ export function ModifierDialog({ open, onOpenChange, item, onAdd }: ModifierDial
           {/* Variants/Sizes */}
           {item.variants.length > 0 && (
             <div className="space-y-2">
-              <Label>Size</Label>
+              <Label>{t('waiter.size')}</Label>
               <div className="grid grid-cols-3 gap-2">
                 {item.variants.map(variant => (
                   <Button
@@ -119,7 +121,7 @@ export function ModifierDialog({ open, onOpenChange, item, onAdd }: ModifierDial
           {/* Modifiers */}
           {item.modifiers.length > 0 && (
             <div className="space-y-2">
-              <Label>Add-ons</Label>
+              <Label>{t('waiter.addOns')}</Label>
               <div className="space-y-2">
                 {item.modifiers.map(modifier => {
                   const isSelected = selectedModifiers.some(m => m.name === modifier.name);
@@ -134,7 +136,7 @@ export function ModifierDialog({ open, onOpenChange, item, onAdd }: ModifierDial
                     >
                       <span className="font-medium">{modifier.name}</span>
                       <span className="text-muted-foreground">
-                        {modifier.price > 0 ? `+${formatCurrency(modifier.price)}` : 'Free'}
+                        {modifier.price > 0 ? `+${formatCurrency(modifier.price)}` : t('waiter.free')}
                       </span>
                     </div>
                   );
@@ -145,10 +147,10 @@ export function ModifierDialog({ open, onOpenChange, item, onAdd }: ModifierDial
 
           {/* Notes */}
           <div className="space-y-2">
-            <Label htmlFor="notes">Special Instructions</Label>
+            <Label htmlFor="notes">{t('waiter.specialInstructions')}</Label>
             <Textarea
               id="notes"
-              placeholder="Any special requests..."
+              placeholder={t('waiter.specialRequests')}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
@@ -158,12 +160,12 @@ export function ModifierDialog({ open, onOpenChange, item, onAdd }: ModifierDial
           {/* Price Summary */}
           <div className="bg-muted rounded-lg p-4 space-y-1">
             <div className="flex justify-between text-sm">
-              <span>Base price</span>
+              <span>{t('waiter.basePrice')}</span>
               <span>{formatCurrency(basePrice)}</span>
             </div>
             {modifiersTotal > 0 && (
               <div className="flex justify-between text-sm">
-                <span>Add-ons</span>
+                <span>{t('waiter.addOns')}</span>
                 <span>+{formatCurrency(modifiersTotal)}</span>
               </div>
             )}
@@ -174,7 +176,7 @@ export function ModifierDialog({ open, onOpenChange, item, onAdd }: ModifierDial
               </div>
             )}
             <div className="flex justify-between font-bold pt-2 border-t">
-              <span>Total</span>
+              <span>{t('common.total')}</span>
               <span>{formatCurrency(totalPrice)}</span>
             </div>
           </div>
@@ -182,10 +184,10 @@ export function ModifierDialog({ open, onOpenChange, item, onAdd }: ModifierDial
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button onClick={handleAdd}>
-            Add to Order - {formatCurrency(totalPrice)}
+            {t('waiter.addToOrderWithPrice', { price: formatCurrency(totalPrice) })}
           </Button>
         </DialogFooter>
       </DialogContent>

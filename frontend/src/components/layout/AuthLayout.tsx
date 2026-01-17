@@ -1,14 +1,18 @@
-import { Outlet, useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, ReactNode } from 'react';
 import { useAuthStore } from '@/store/authStore';
+import { useNavigationStore } from '@/store/navigationStore';
 
-export function AuthLayout() {
+interface AuthLayoutProps {
+  children: ReactNode;
+}
+
+export function AuthLayout({ children }: AuthLayoutProps) {
   const { isAuthenticated } = useAuthStore();
-  const navigate = useNavigate();
+  const { navigate } = useNavigationStore();
 
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/dashboard');
+      navigate('dashboard');
     }
   }, [isAuthenticated, navigate]);
 
@@ -19,7 +23,7 @@ export function AuthLayout() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
       <div className="w-full">
-        <Outlet />
+        {children}
       </div>
     </div>
   );

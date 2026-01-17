@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useNavigationStore, PageName } from '@/store/navigationStore';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -21,23 +21,23 @@ import {
 import { SmartRetroLogo } from '@/components/ui/SmartRetroLogo';
 import { useAuthStore } from '@/store/authStore';
 
-const getRedirectPath = (role: string): string => {
+const getRedirectPage = (role: string): PageName => {
   switch (role) {
     case 'super_admin':
-      return '/saas-admin';
+      return 'saas.dashboard';
     case 'tenant_admin':
     case 'admin':
     case 'manager':
     case 'cashier':
     case 'inventory':
-      return '/dashboard';
+      return 'dashboard';
     case 'waiter':
     case 'server':
-      return '/waiter';
+      return 'tables';
     case 'kitchen':
-      return '/kds';
+      return 'kds';
     default:
-      return '/dashboard';
+      return 'dashboard';
   }
 };
 
@@ -60,7 +60,7 @@ type WaiterLoginFormData = {
 
 export function UnifiedLoginPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { navigate } = useNavigationStore();
   const { login, waiterLogin, isLoading, error, clearError } = useAuthStore();
   const [showPassword, setShowPassword] = useState(false);
   const [loginMode, setLoginMode] = useState<'admin' | 'waiter'>('admin');
@@ -151,9 +151,9 @@ export function UnifiedLoginPage() {
     if (success) {
       const user = useAuthStore.getState().user;
       if (user) {
-        navigate(getRedirectPath(user.role));
+        navigate(getRedirectPage(user.role));
       } else {
-        navigate('/dashboard');
+        navigate('dashboard');
       }
     }
   };
@@ -183,7 +183,7 @@ export function UnifiedLoginPage() {
       if (user && (user.role === 'waiter' || user.role === 'server')) {
         setShowShiftDialog(true);
       } else {
-        navigate(getRedirectPath(user?.role || 'waiter'));
+        navigate(getRedirectPage(user?.role || 'waiter'));
       }
     } else {
       const newAttempts = loginAttempts + 1;
@@ -202,7 +202,7 @@ export function UnifiedLoginPage() {
   const handleStartShift = () => {
     localStorage.setItem('waiter_shift_start', new Date().toISOString());
     setShowShiftDialog(false);
-    navigate('/waiter');
+    navigate('tables');
   };
 
   const adminRememberMe = watchAdmin('rememberMe');
@@ -514,7 +514,7 @@ export function UnifiedLoginPage() {
               variant="outline"
               onClick={() => {
                 setShowShiftDialog(false);
-                navigate('/login');
+                navigate('login');
               }}
             >
               {t('common.cancel')}

@@ -78,14 +78,14 @@ class TaxController {
    */
   async create(req, res, next) {
     try {
-      const { name, rate, type, appliesTo, isActive } = req.body;
+      const { name, rate, type, isActive } = req.body;
 
       const tax = await Tax.create({
         restaurantId: req.restaurantId,
         name,
         rate,
         type: type || 'percentage',
-        appliesTo: appliesTo || 'all',
+        appliesTo: 'all', // Always applies to all orders when enabled
         isActive: isActive !== undefined ? isActive : true
       });
 
@@ -105,7 +105,7 @@ class TaxController {
   async update(req, res, next) {
     try {
       const { id } = req.params;
-      const { name, rate, type, appliesTo, isActive } = req.body;
+      const { name, rate, type, isActive } = req.body;
 
       const tax = await Tax.findOne({
         where: { id, restaurantId: req.restaurantId }
@@ -119,7 +119,7 @@ class TaxController {
         name,
         rate,
         type,
-        appliesTo,
+        appliesTo: 'all', // Always applies to all orders when enabled
         isActive
       });
 

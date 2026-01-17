@@ -18,6 +18,8 @@ export interface LoginResponse {
     tenantId?: string;
     restaurantId?: string;
     isActive: boolean;
+    tenant?: { id: string; name: string; subscriptionTier?: string };
+    restaurant?: { id: string; name: string };
   };
 }
 
@@ -102,6 +104,18 @@ export const authApi = {
       // Always clear local storage
       localStorage.removeItem('auth_token');
       localStorage.removeItem('refresh_token');
+    }
+  },
+
+  /**
+   * Impersonate User
+   */
+  impersonate: async (userId: string): Promise<LoginResponse> => {
+    try {
+      const response = await apiClient.post<LoginResponse>('/auth/impersonate', { userId });
+      return response.data;
+    } catch (error) {
+      throw getApiError(error);
     }
   },
 };

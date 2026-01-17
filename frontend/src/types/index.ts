@@ -13,12 +13,14 @@ export interface User {
   pin?: string;
   tenantId?: string;      // For tenant_admin
   restaurantId?: string;  // For restaurant-level users
+  tenant?: { id: string; name: string; subscriptionTier?: string }; // Populated in some API responses
+  restaurant?: { id: string; name: string }; // Populated in some API responses
   isActive?: boolean;
   createdAt?: Date;
 }
 
 // Role hierarchy: super_admin > tenant_admin > admin > manager > others
-export type UserRole = 
+export type UserRole =
   | 'super_admin'   // SaaS platform admin - manages all tenants
   | 'tenant_admin'  // Tenant owner - manages their restaurants
   | 'admin'         // Restaurant admin
@@ -164,7 +166,8 @@ export interface OrderItem {
   unitPrice: number;
   totalPrice: number;
   variant?: string;
-  modifiers: string[];
+  modifiers: Array<{name: string; price: number}>;
+  modifiersTotal?: number;
   notes?: string;
   status: OrderItemStatus;
 }

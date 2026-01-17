@@ -86,6 +86,24 @@ class MenuItemController {
    */
   async create(req, res, next) {
     try {
+      // Check if categories exist
+      const categoryCount = await MenuCategory.count({
+        where: { restaurantId: req.restaurantId, isActive: true }
+      });
+
+      if (categoryCount === 0) {
+        return res.status(400).json({
+          error: 'Missing prerequisite',
+          message: 'You must create at least one category before adding menu items',
+          details: [
+            {
+              field: 'categoryId',
+              message: 'No categories exist. Please create a category first.'
+            }
+          ]
+        });
+      }
+
       const {
         categoryId,
         name,
@@ -200,12 +218,63 @@ class MenuItemController {
         throw new NotFoundError('Menu item');
       }
 
+      // Check if menu item is referenced in order items
+      const OrderItem = require('../models').OrderItem;
+      const orderItemCount = await OrderItem.count({
+        where: { menuItemId: id }
+      });
+
+      if (orderItemCount > 0) {
+        return res.status(400).json({
+          error: 'Cannot delete menu item',
+          message: `This menu item cannot be deleted because it has been used in ${orderItemCount} order(s). Please deactivate it instead.`,
+          details: [
+            {
+              field: 'id',
+              message: `Menu item is referenced in ${orderItemCount} order(s). Deactivate the item instead of deleting it.`
+            }
+          ]
+        });
+      }
+
+      // Check if menu item has recipes
+      const Recipe = require('../models').Recipe;
+      const recipeCount = await Recipe.count({
+        where: { menuItemId: id }
+      });
+
+      if (recipeCount > 0) {
+        return res.status(400).json({
+          error: 'Cannot delete menu item',
+          message: `This menu item cannot be deleted because it has ${recipeCount} recipe(s) associated with it. Please remove the recipes first or deactivate the item instead.`,
+          details: [
+            {
+              field: 'id',
+              message: `Menu item has ${recipeCount} recipe(s) associated with it. Remove recipes first or deactivate instead.`
+            }
+          ]
+        });
+      }
+
       await item.destroy();
 
       res.json({
         message: 'Menu item deleted successfully'
       });
     } catch (error) {
+      // Handle foreign key constraint errors gracefully
+      if (error.name === 'SequelizeForeignKeyConstraintError') {
+        return res.status(400).json({
+          error: 'Cannot delete menu item',
+          message: 'This menu item cannot be deleted because it is still referenced in orders or recipes. Please deactivate it instead.',
+          details: [
+            {
+              field: 'id',
+              message: 'Menu item is referenced in orders or recipes. Deactivate instead of deleting.'
+            }
+          ]
+        });
+      }
       next(error);
     }
   }

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -23,6 +23,8 @@ import {
 } from '@/components/ui/select';
 import { useTableStore } from '@/store/tableStore';
 import { Table } from '@/types';
+import { FormErrorSummary } from '@/components/ui/form-error-summary';
+import { useFormErrorHandler } from '@/hooks/useFormErrorHandler';
 
 const tableSchema = z.object({
   tableNumber: z.string().min(1, 'Table number is required'),
@@ -41,6 +43,7 @@ interface TableDialogProps {
 
 export function TableDialog({ open, onOpenChange, editingTable }: TableDialogProps) {
   const { sections, addTable, updateTable } = useTableStore();
+  const [apiError, setApiError] = useState<any>(null);
 
   const {
     register,
@@ -48,6 +51,7 @@ export function TableDialog({ open, onOpenChange, editingTable }: TableDialogPro
     reset,
     setValue,
     watch,
+    setError,
     formState: { errors },
   } = useForm<TableFormData>({
     resolver: zodResolver(tableSchema),
@@ -59,26 +63,36 @@ export function TableDialog({ open, onOpenChange, editingTable }: TableDialogPro
     },
   });
 
+  const { handleApiError, clearError } = useFormErrorHandler(setError);
+
   useEffect(() => {
-    if (editingTable) {
-      reset({
-        tableNumber: editingTable.tableNumber,
-        name: editingTable.name || '',
-        section: editingTable.section,
-        capacity: editingTable.capacity,
-      });
-    } else {
-      reset({
-        tableNumber: '',
-        name: '',
-        section: sections[0]?.name || 'Main Floor',
-        capacity: 4,
-      });
+    if (open) {
+      clearError();
+      setApiError(null);
+      
+      if (editingTable) {
+        reset({
+          tableNumber: editingTable.tableNumber,
+          name: editingTable.name || '',
+          section: editingTable.section,
+          capacity: editingTable.capacity,
+        });
+      } else {
+        reset({
+          tableNumber: '',
+          name: '',
+          section: sections[0]?.name || 'Main Floor',
+          capacity: 4,
+        });
+      }
     }
-  }, [editingTable, reset, sections]);
+  }, [editingTable, reset, sections, open, clearError]);
 
   const onSubmit = async (data: TableFormData) => {
     try {
+      clearError();
+      setApiError(null);
+      
       if (editingTable) {
         await updateTable(editingTable.id, data);
       } else {
@@ -88,9 +102,10 @@ export function TableDialog({ open, onOpenChange, editingTable }: TableDialogPro
         });
       }
       onOpenChange(false);
+      reset();
     } catch (error) {
-      console.error('Failed to save table:', error);
-      // Error is handled by the store
+      const errorData = handleApiError(error);
+      setApiError(errorData);
     }
   };
 
@@ -109,6 +124,7 @@ export function TableDialog({ open, onOpenChange, editingTable }: TableDialogPro
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <FormErrorSummary error={apiError} onDismiss={() => { clearError(); setApiError(null); }} />
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="tableNumber">Table Number *</Label>

@@ -193,7 +193,23 @@ module.exports = (sequelize, DataTypes) => {
     underscored: true,
     timestamps: true,
     createdAt: 'created_at',
-    updatedAt: 'updated_at'
+    updatedAt: 'updated_at',
+    hooks: {
+      afterUpdate: async function(order, options) {
+        // Check if payment status changed to 'paid'
+        if (order.changed('paymentStatus') && order.paymentStatus === 'paid') {
+          try {
+            const { onPaymentStatusUpdate } = require('../utils/qrPaymentHook');
+            // Get io instance if available
+            const io = options.io || null;
+            await onPaymentStatusUpdate(order.id, 'paid', order.restaurantId, io);
+          } catch (error) {
+            console.error('Error in payment status update hook:', error);
+            // Don't throw - hooks shouldn't break the update
+          }
+        }
+      }
+    }
   });
 
   return Order;

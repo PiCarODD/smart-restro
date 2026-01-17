@@ -1,5 +1,5 @@
 const authService = require('../services/authService');
-const { AuthenticationError } = require('../utils/errors');
+const { AuthenticationError, AuthorizationError } = require('../utils/errors');
 
 class AuthController {
   /**
@@ -69,9 +69,20 @@ class AuthController {
    */
   async refresh(req, res, next) {
     try {
-      // For now, just return success (token refresh can be implemented later with refresh tokens)
+      const { refreshToken } = req.body;
+
+      if (!refreshToken) {
+        return res.status(400).json({ error: 'Refresh token is required' });
+      }
+
+      const ipAddress = req.ip || req.connection?.remoteAddress;
+      const userAgent = req.headers['user-agent'];
+
+      const result = await authService.refreshAccessToken(refreshToken, ipAddress, userAgent);
+
       res.json({
-        message: 'Token refresh - implement refresh token logic if needed'
+        message: 'Token refreshed successfully',
+        ...result
       });
     } catch (error) {
       next(error);
@@ -84,10 +95,37 @@ class AuthController {
    */
   async logout(req, res, next) {
     try {
-      // For JWT, logout is handled client-side by removing token
-      // If using refresh tokens, invalidate them here
+      const { refreshToken } = req.body;
+
+      if (refreshToken) {
+        await authService.revokeRefreshToken(refreshToken);
+      }
+
       res.json({
         message: 'Logout successful'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+  /**
+   * Impersonate user (Super Admin only)
+   * POST /api/auth/impersonate
+   */
+  async impersonate(req, res, next) {
+    try {
+      const { userId } = req.body;
+
+      // Ensure the requester is a super_admin
+      // (Though the route middleware should handle this, double check is good practice)
+      if (req.user.role !== 'super_admin') {
+        throw new AuthorizationError('Only super admins can impersonate users');
+      }
+
+      const result = await authService.impersonate(userId);
+      res.json({
+        message: 'Impersonation successful',
+        ...result
       });
     } catch (error) {
       next(error);

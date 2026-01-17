@@ -98,6 +98,7 @@ export const ordersApi = {
     orderType?: string;
     startDate?: string;
     endDate?: string;
+    shiftStartDate?: string;
     page?: number;
     limit?: number;
   }): Promise<OrderListResponse> => {
@@ -156,6 +157,24 @@ export const ordersApi = {
   sendToKitchen: async (id: string): Promise<{ order: Order }> => {
     try {
       const response = await apiClient.post<{ order: Order }>(`/orders/${id}/send-to-kitchen`);
+      return response.data;
+    } catch (error) {
+      throw getApiError(error);
+    }
+  },
+
+  pickup: async (id: string): Promise<{ message: string; order: Order }> => {
+    try {
+      const response = await apiClient.post<{ message: string; order: Order }>(`/orders/${id}/pickup`);
+      return response.data;
+    } catch (error) {
+      throw getApiError(error);
+    }
+  },
+
+  serve: async (id: string): Promise<{ message: string; order: Order }> => {
+    try {
+      const response = await apiClient.post<{ message: string; order: Order }>(`/orders/${id}/serve`);
       return response.data;
     } catch (error) {
       throw getApiError(error);
@@ -232,6 +251,28 @@ export const ordersApi = {
         `/orders/${orderId}/items/${itemId}/status`,
         { status }
       );
+      return response.data;
+    } catch (error) {
+      throw getApiError(error);
+    }
+  },
+
+  /**
+   * Get order statistics
+   */
+  getStats: async (): Promise<{
+    todayOrders: number;
+    todaySales: number;
+    avgOrderTime: string;
+    shiftStart: string;
+  }> => {
+    try {
+      const response = await apiClient.get<{
+        todayOrders: number;
+        todaySales: number;
+        avgOrderTime: string;
+        shiftStart: string;
+      }>('/orders/stats');
       return response.data;
     } catch (error) {
       throw getApiError(error);

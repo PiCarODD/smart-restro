@@ -5,8 +5,8 @@ export interface Tax {
   name: string;
   rate: number;
   type: 'percentage' | 'fixed';
-  appliesTo: 'all' | 'food' | 'beverage' | 'alcohol';
   isActive: boolean;
+  // appliesTo removed - taxes apply to all orders when enabled
 }
 
 /**

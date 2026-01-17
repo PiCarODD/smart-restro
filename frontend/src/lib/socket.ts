@@ -120,6 +120,8 @@ export interface OrderSocketEvents {
   'order:created': (order: any) => void;
   'order:status_changed': (data: { orderId: string; status: string; order?: any }) => void;
   'order:ready': (data: { orderId: string; tableId: string; orderNumber: string }) => void;
+  'order:picked_up': (data: { orderId: string; orderNumber: string; tableId: string; pickedUpBy?: string }) => void;
+  'order:served': (data: { orderId: string; orderNumber: string; tableId: string }) => void;
   'order:cancelled': (data: { orderId: string }) => void;
   'order:sent_to_kitchen': (order: any) => void;
   'order:item_updated': (data: { orderId: string; itemId: string; status: string; orderItem: any }) => void;
@@ -134,56 +136,12 @@ export interface TableSocketEvents {
 }
 
 /**
- * Subscribe to order events
+ * Socket event listeners for notifications
  */
-export function subscribeToOrders(callbacks: Partial<OrderSocketEvents>): () => void {
-  const currentSocket = getSocket();
-  if (!currentSocket) {
-    return () => {}; // Return no-op cleanup function
-  }
-
-  // Add event listeners
-  if (callbacks['order:created']) {
-    currentSocket.on('order:created', callbacks['order:created']);
-  }
-  if (callbacks['order:status_changed']) {
-    currentSocket.on('order:status_changed', callbacks['order:status_changed']);
-  }
-  if (callbacks['order:ready']) {
-    currentSocket.on('order:ready', callbacks['order:ready']);
-  }
-  if (callbacks['order:cancelled']) {
-    currentSocket.on('order:cancelled', callbacks['order:cancelled']);
-  }
-  if (callbacks['order:sent_to_kitchen']) {
-    currentSocket.on('order:sent_to_kitchen', callbacks['order:sent_to_kitchen']);
-  }
-  if (callbacks['order:item_updated']) {
-    currentSocket.on('order:item_updated', callbacks['order:item_updated']);
-  }
-
-  // Return cleanup function
-  return () => {
-    if (!currentSocket) return;
-    if (callbacks['order:created']) {
-      currentSocket.off('order:created', callbacks['order:created']);
-    }
-    if (callbacks['order:status_changed']) {
-      currentSocket.off('order:status_changed', callbacks['order:status_changed']);
-    }
-    if (callbacks['order:ready']) {
-      currentSocket.off('order:ready', callbacks['order:ready']);
-    }
-    if (callbacks['order:cancelled']) {
-      currentSocket.off('order:cancelled', callbacks['order:cancelled']);
-    }
-    if (callbacks['order:sent_to_kitchen']) {
-      currentSocket.off('order:sent_to_kitchen', callbacks['order:sent_to_kitchen']);
-    }
-    if (callbacks['order:item_updated']) {
-      currentSocket.off('order:item_updated', callbacks['order:item_updated']);
-    }
-  };
+export interface NotificationSocketEvents {
+  'notification:new': (notification: any) => void;
+  'notification:read': (data: { notificationId: string }) => void;
+  'notification:all_read': () => void;
 }
 
 /**
@@ -211,6 +169,104 @@ export function subscribeToTables(callbacks: Partial<TableSocketEvents>): () => 
     }
     if (callbacks['tables:updated']) {
       currentSocket.off('tables:updated', callbacks['tables:updated']);
+    }
+  };
+}
+
+/**
+ * Subscribe to notification events
+ */
+export function subscribeToNotifications(callbacks: Partial<NotificationSocketEvents>): () => void {
+  const currentSocket = getSocket();
+  if (!currentSocket) {
+    return () => {};
+  }
+
+  if (callbacks['notification:new']) {
+    currentSocket.on('notification:new', callbacks['notification:new']);
+  }
+  if (callbacks['notification:read']) {
+    currentSocket.on('notification:read', callbacks['notification:read']);
+  }
+  if (callbacks['notification:all_read']) {
+    currentSocket.on('notification:all_read', callbacks['notification:all_read']);
+  }
+
+  return () => {
+    if (!currentSocket) return;
+    if (callbacks['notification:new']) {
+      currentSocket.off('notification:new', callbacks['notification:new']);
+    }
+    if (callbacks['notification:read']) {
+      currentSocket.off('notification:read', callbacks['notification:read']);
+    }
+    if (callbacks['notification:all_read']) {
+      currentSocket.off('notification:all_read', callbacks['notification:all_read']);
+    }
+  };
+}
+
+/**
+ * Subscribe to order events
+ */
+export function subscribeToOrders(callbacks: Partial<OrderSocketEvents>): () => void {
+  const currentSocket = getSocket();
+  if (!currentSocket) {
+    return () => {}; // Return no-op cleanup function
+  }
+
+  // Add event listeners
+  if (callbacks['order:created']) {
+    currentSocket.on('order:created', callbacks['order:created']);
+  }
+  if (callbacks['order:status_changed']) {
+    currentSocket.on('order:status_changed', callbacks['order:status_changed']);
+  }
+  if (callbacks['order:ready']) {
+    currentSocket.on('order:ready', callbacks['order:ready']);
+  }
+  if (callbacks['order:picked_up']) {
+    currentSocket.on('order:picked_up', callbacks['order:picked_up']);
+  }
+  if (callbacks['order:served']) {
+    currentSocket.on('order:served', callbacks['order:served']);
+  }
+  if (callbacks['order:cancelled']) {
+    currentSocket.on('order:cancelled', callbacks['order:cancelled']);
+  }
+  if (callbacks['order:sent_to_kitchen']) {
+    currentSocket.on('order:sent_to_kitchen', callbacks['order:sent_to_kitchen']);
+  }
+  if (callbacks['order:item_updated']) {
+    currentSocket.on('order:item_updated', callbacks['order:item_updated']);
+  }
+
+  // Return cleanup function
+  return () => {
+    if (!currentSocket) return;
+    if (callbacks['order:created']) {
+      currentSocket.off('order:created', callbacks['order:created']);
+    }
+    if (callbacks['order:status_changed']) {
+      currentSocket.off('order:status_changed', callbacks['order:status_changed']);
+    }
+    if (callbacks['order:ready']) {
+      currentSocket.off('order:ready', callbacks['order:ready']);
+    }
+    if (callbacks['order:picked_up']) {
+      currentSocket.off('order:picked_up', callbacks['order:picked_up']);
+    }
+    if (callbacks['order:served']) {
+      currentSocket.off('order:served', callbacks['order:served']);
+    }
+    if (callbacks['order:cancelled']) {
+      currentSocket.off('order:cancelled', callbacks['order:cancelled']);
+    }
+    if (callbacks['order:sent_to_kitchen']) {
+      currentSocket.off('order:sent_to_kitchen', callbacks['order:sent_to_kitchen']);
+    }
+    if (callbacks['order:item_updated']) {
+      currentSocket.off('order:item_updated', callbacks['order:item_updated']);
     }
   };
 }

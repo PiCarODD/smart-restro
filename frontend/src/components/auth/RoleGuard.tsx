@@ -1,5 +1,6 @@
-import { Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
 import { useAuthStore } from '@/store/authStore';
+import { useNavigationStore } from '@/store/navigationStore';
 import { User } from '@/types';
 
 type UserRole = User['role'];
@@ -7,27 +8,36 @@ type UserRole = User['role'];
 interface RoleGuardProps {
   children: React.ReactNode;
   allowedRoles: UserRole[];
-  fallbackPath?: string;
+  fallbackPage?: 'dashboard' | 'login';
 }
 
 /**
  * RoleGuard component - restricts access based on user role
- * Redirects to fallback path (default: /dashboard) if user doesn't have required role
+ * Redirects to fallback page (default: dashboard) if user doesn't have required role
  */
 export function RoleGuard({ 
   children, 
   allowedRoles, 
-  fallbackPath = '/dashboard' 
+  fallbackPage = 'dashboard'
 }: RoleGuardProps) {
   const { user, isAuthenticated } = useAuthStore();
+  const { navigate, currentPage } = useNavigationStore();
+
+  useEffect(() => {
+    if (!isAuthenticated || !user) {
+      navigate('login');
+    } else if (!allowedRoles.includes(user.role)) {
+      // User doesn't have required role, redirect to fallback
+      navigate(fallbackPage);
+    }
+  }, [isAuthenticated, user, allowedRoles, fallbackPage, navigate, currentPage]);
 
   if (!isAuthenticated || !user) {
-    return <Navigate to="/login" replace />;
+    return null; // Navigation to login will happen in useEffect
   }
 
   if (!allowedRoles.includes(user.role)) {
-    // User doesn't have required role, redirect to fallback
-    return <Navigate to={fallbackPath} replace />;
+    return null; // Navigation to fallback will happen in useEffect
   }
 
   return <>{children}</>;

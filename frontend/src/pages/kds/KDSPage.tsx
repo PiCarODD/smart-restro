@@ -1,10 +1,10 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { 
-  ChefHat, 
-  Clock, 
+import {
+  ChefHat,
+  Clock,
   Bell,
-  Volume2, 
+  Volume2,
   VolumeX,
   CheckCircle,
   AlertTriangle,
@@ -16,10 +16,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useOrderStore } from '@/store/orderStore';
-import { Order, OrderItem, OrderItemStatus } from '@/types';
-import { cn } from '@/lib/utils';
+import { Order, OrderItemStatus } from '@/types';
+import { cn, formatCurrency } from '@/lib/utils';
 
 // Time thresholds for color coding (in minutes)
 const WARNING_THRESHOLD = 10;
@@ -35,9 +34,9 @@ export function KDSPage() {
     renderCount = 0;
     componentMounted = true;
   }
-  
+
   renderCount++;
-  
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -45,25 +44,25 @@ export function KDSPage() {
       renderCount = 0;
     };
   }, []);
-  
+
   if (renderCount > 20) {
     console.error('[KDS] ERROR: Component has rendered', renderCount, 'times! Possible infinite loop!');
     // Prevent further rendering if we're in an infinite loop
     return <div className="p-4">Error: Too many re-renders detected. Please refresh the page.</div>;
   }
-  
+
   const { t } = useTranslation();
-  
+
   // Use a simple selector - Zustand already optimizes this
   // Don't use custom equality check as it might be causing issues
   const orders = useOrderStore((state) => state.orders);
-  
+
   // Use stable selectors for functions (they don't change)
   const loadOrders = useOrderStore((state) => state.loadOrders);
   const updateOrderStatus = useOrderStore((state) => state.updateOrderStatus);
   const updateItemStatus = useOrderStore((state) => state.updateItemStatus);
   const isLoading = useOrderStore((state) => state.isLoading);
-  
+
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   // Load orders only once on mount
@@ -83,17 +82,17 @@ export function KDSPage() {
     return orders.filter(o => o && o.id && ['confirmed', 'preparing', 'ready'].includes(o.status));
   }, [orders]);
 
-  const confirmedOrders = useMemo(() => 
+  const confirmedOrders = useMemo(() =>
     kdsOrders.filter(o => o.status === 'confirmed'),
     [kdsOrders]
   );
 
-  const preparingOrders = useMemo(() => 
+  const preparingOrders = useMemo(() =>
     kdsOrders.filter(o => o.status === 'preparing'),
     [kdsOrders]
   );
 
-  const readyOrders = useMemo(() => 
+  const readyOrders = useMemo(() =>
     kdsOrders.filter(o => o.status === 'ready'),
     [kdsOrders]
   );
@@ -160,13 +159,13 @@ export function KDSPage() {
     if (!order || !order.id) {
       return null;
     }
-    
+
     try {
       const urgency = getOrderUrgency(order);
       const age = getOrderAge(order);
-      
+
       return (
-        <Card 
+        <Card
           key={order.id}
           className={cn(
             "border-l-4 transition-all",
@@ -182,7 +181,7 @@ export function KDSPage() {
               <div className={cn(
                 "flex items-center gap-1 text-sm",
                 urgency === 'urgent' ? 'text-red-600 font-bold' :
-                urgency === 'warning' ? 'text-yellow-600' : 'text-muted-foreground'
+                  urgency === 'warning' ? 'text-yellow-600' : 'text-muted-foreground'
               )}>
                 <Clock className="h-4 w-4" />
                 <span>{age}m</span>
@@ -199,12 +198,12 @@ export function KDSPage() {
                 order.items.map(item => {
                   if (!item || !item.id) return null;
                   return (
-                    <div 
+                    <div
                       key={item.id}
                       className={cn(
                         "flex items-start justify-between p-2 rounded",
                         item.status === 'ready' ? 'bg-green-50 line-through opacity-60' :
-                        item.status === 'preparing' ? 'bg-yellow-50' : 'bg-muted/50'
+                          item.status === 'preparing' ? 'bg-yellow-50' : 'bg-muted/50'
                       )}
                     >
                       <div className="flex-1">
@@ -220,8 +219,22 @@ export function KDSPage() {
                         )}
                         {/* Modifiers (Addons) */}
                         {item.modifiers && Array.isArray(item.modifiers) && item.modifiers.length > 0 && (
-                          <p className="text-sm text-blue-600 ml-7">
-                            Addons: {item.modifiers.join(', ')}
+                          <div className="text-sm text-blue-600 ml-7">
+                            Addons: {item.modifiers.map((mod, idx) => {
+                              const modName = typeof mod === 'string' ? mod : mod.name;
+                              const modPrice = typeof mod === 'string' ? 0 : (mod.price || 0);
+                              return (
+                                <span key={idx}>
+                                  {modName} {modPrice > 0 && `(+${formatCurrency(modPrice)})`}
+                                  {idx < item.modifiers.length - 1 && ', '}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {item.modifiersTotal && item.modifiersTotal > 0 && (
+                          <p className="text-sm text-muted-foreground ml-7">
+                            Add-ons Total: {formatCurrency(item.modifiersTotal)}
                           </p>
                         )}
                         {/* Notes */}
@@ -230,8 +243,8 @@ export function KDSPage() {
                         )}
                       </div>
                       {order.status === 'preparing' && item.status !== 'ready' && (
-                        <Button 
-                          size="sm" 
+                        <Button
+                          size="sm"
                           variant="outline"
                           className="shrink-0"
                           onClick={() => handleItemStatusChange(order.id, item.id, 'ready')}
@@ -252,8 +265,8 @@ export function KDSPage() {
             {showActions && (
               <div className="flex gap-2">
                 {order.status === 'confirmed' && (
-                  <Button 
-                    className="flex-1" 
+                  <Button
+                    className="flex-1"
                     onClick={() => handleStartPreparing(order.id)}
                   >
                     <ChefHat className="mr-2 h-4 w-4" />
@@ -261,8 +274,8 @@ export function KDSPage() {
                   </Button>
                 )}
                 {order.status === 'preparing' && (
-                  <Button 
-                    className="flex-1 bg-green-600 hover:bg-green-700" 
+                  <Button
+                    className="flex-1 bg-green-600 hover:bg-green-700"
                     onClick={() => handleMarkReady(order.id)}
                   >
                     <CheckCircle className="mr-2 h-4 w-4" />
@@ -270,8 +283,8 @@ export function KDSPage() {
                   </Button>
                 )}
                 {order.status === 'ready' && (
-                  <Button 
-                    className="flex-1 bg-purple-600 hover:bg-purple-700" 
+                  <Button
+                    className="flex-1 bg-purple-600 hover:bg-purple-700"
                     onClick={() => handleMarkServed(order.id)}
                   >
                     <Utensils className="mr-2 h-4 w-4" />

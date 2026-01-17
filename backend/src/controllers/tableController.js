@@ -18,6 +18,9 @@ class TableController {
   async list(req, res, next) {
     try {
       const { sectionId, status } = req.query;
+      const { Op } = require('sequelize');
+      const { Order } = require('../models');
+
       const where = {
         restaurantId: req.restaurantId // Only from JWT token, never from client
       };
@@ -33,7 +36,16 @@ class TableController {
         where,
         include: [
           { model: require('../models').Restaurant, as: 'restaurant', attributes: ['id', 'name'] },
-          { model: require('../models').Section, as: 'sectionData', attributes: ['id', 'name', 'color'] }
+          { model: require('../models').Section, as: 'sectionData', attributes: ['id', 'name', 'color'] },
+          {
+            model: Order,
+            as: 'currentOrder',
+            where: {
+              status: { [Op.in]: ['pending', 'confirmed', 'preparing', 'ready'] }
+            },
+            required: false,
+            attributes: ['id', 'orderNumber', 'status', 'guestCount', 'placedAt']
+          }
         ],
         order: [['tableNumber', 'ASC']]
       });
@@ -88,6 +100,25 @@ class TableController {
    */
   async create(req, res, next) {
     try {
+      // Check if sections exist
+      const Section = require('../models').Section;
+      const sectionCount = await Section.count({
+        where: { restaurantId: req.restaurantId, isActive: true }
+      });
+
+      if (sectionCount === 0) {
+        return res.status(400).json({
+          error: 'Missing prerequisite',
+          message: 'You must create at least one section before adding tables',
+          details: [
+            {
+              field: 'section',
+              message: 'No sections exist. Please create a section first.'
+            }
+          ]
+        });
+      }
+
       const {
         tableNumber,
         name,
@@ -229,6 +260,8 @@ class TableController {
     try {
       const { id } = req.params;
       const { status, guestCount, orderId } = req.body;
+      const { Op } = require('sequelize');
+      const { Order } = require('../models');
 
       const table = await Table.findOne({
         where: { id, restaurantId: req.restaurantId }
@@ -236,6 +269,38 @@ class TableController {
 
       if (!table) {
         throw new NotFoundError('Table');
+      }
+
+      // Check if trying to change status away from 'occupied' when there are unpaid orders
+      // Don't block if changing TO 'occupied' (that's fine)
+      if (table.status === 'occupied' && status !== 'occupied') {
+        // Check for unpaid orders for this table
+        const unpaidOrders = await Order.findAll({
+          where: {
+            tableId: id,
+            restaurantId: req.restaurantId,
+            paymentStatus: {
+              [Op.in]: ['unpaid', 'partial']
+            },
+            status: {
+              [Op.notIn]: ['completed', 'cancelled'] // Exclude completed/cancelled orders
+            }
+          },
+          attributes: ['id', 'orderNumber', 'paymentStatus', 'totalAmount']
+        });
+
+        if (unpaidOrders.length > 0) {
+          return res.status(400).json({
+            error: 'Cannot change table status',
+            message: `Cannot change table status. There are ${unpaidOrders.length} unpaid order(s) for this table. Please complete payment for all orders first.`,
+            unpaidOrders: unpaidOrders.map(o => ({
+              id: o.id,
+              orderNumber: o.orderNumber,
+              paymentStatus: o.paymentStatus,
+              totalAmount: o.totalAmount
+            }))
+          });
+        }
       }
 
       const updateData = { status };
